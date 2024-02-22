@@ -1,6 +1,7 @@
 package userinput
 
 import (
+	"backdoorBoi/pkg/netcat"
 	"flag"
 	"log"
 	"os"
@@ -8,28 +9,22 @@ import (
 
 // First layer flags that must be called
 const (
-	Server             string = "Server"
-	Client             string = "Client"
-	ExceptionStatement string = "Expected 'Client' or 'Server'"
-)
-
-// Second layer flags that check true/false to help build a functional beacon
-const (
-	Netcat     string = "Netcat"
-	Scanner    string = "Scanner"
-	Proxy      string = "Proxy"
-	HttpClient string = "HttpClient"
-	HttpServer string = "HttpServer"
+	Http               string = "Http"
+	Netcat             string = "Netcat"
+	Proxy              string = "Proxy"
+	Scanner            string = "Scanner"
+	ExceptionStatement string = "Expected 'Http', 'Netcat', 'Proxy, or 'Scanner'"
 )
 
 func UserInputCheck() {
+	// Check for no arguments.
 	if len(os.Args) <= 1 {
 		log.Fatalln("No arguments provided.")
 	}
 }
 
 func ArgLengthCheck() {
-	// Check for no arguments. If none, exit with help message
+	// Check for less than 1 arg.
 	// log.Println(len(os.Args))
 	if len(os.Args) <= 2 {
 		log.Fatalln(ExceptionStatement)
@@ -42,7 +37,7 @@ func CommandCheck(command string) {
 		log.Fatalln(ExceptionStatement)
 	}
 
-	if command == Client || command == Server {
+	if command == Http || command == Netcat || command == Proxy || command == Scanner {
 		return
 	} else {
 		log.Fatalln(ExceptionStatement)
@@ -57,17 +52,20 @@ func UserCommands() {
 	CommandCheck(command)
 	fs := flag.NewFlagSet(command, flag.ExitOnError)
 	switch command {
-	case Client:
-		uic := &UserInputClient{}
-		uic.SetFlagClient(fs)
+	case Http:
+		log.Printf("We made it to %s", Http)
+	case Netcat:
+		log.Printf("We made it to %s", Netcat)
+		var nni netcat.NetcatInput
+		nni.SetNetcatInput(fs)
 		fs.Parse(os.Args[2:])
-		log.Println("Netcat Enabled:", uic.IsNetcatEnabled())
-		log.Println("Scanner Enabled:", uic.IsScannerEnabled())
-		log.Println("HTTP Client Enabled:", uic.IsHttpClientEnabled())
-	case Server:
-		log.Println("We made it to server")
+		var sbn netcat.NetcatStruct
+		sbn.NetcatBind(&nni)
+	case Proxy:
+		log.Printf("We made it to %s", Proxy)
+	case Scanner:
+		log.Printf("We made it to %s", Scanner)
 	default:
 		log.Fatalln("Subcommand does not exist")
-		os.Exit(1)
 	}
 }
