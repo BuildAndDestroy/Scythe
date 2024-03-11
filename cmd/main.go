@@ -1,7 +1,7 @@
 package main
 
 import (
-	"backdoorBoi/pkg/userinput"
+	"github.com/BuildAndDestroy/backdoorBoi/pkg/userinput"
 )
 
 func main() {
