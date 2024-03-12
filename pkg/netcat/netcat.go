@@ -26,32 +26,21 @@ func (nni *NetcatInput) SetNetcatInput(fs *flag.FlagSet) {
 	fs.BoolVar(&nni.Reverse, "reverse", false, "Set Flag for a Reverse Shell. Note: do not use with --bind")
 }
 
-type NetcatStruct struct {
-	HostAddress string
-	Port        int
-	Bind        bool
-	Reverse     bool
-}
-
-func (sbn *NetcatStruct) NetcatBind(nni *NetcatInput) {
-	sbn.Bind = nni.Bind
-	sbn.Reverse = nni.Reverse
-	sbn.Port = nni.Port
-	sbn.HostAddress = nni.HostAddress
+func NetcatBind(nni *NetcatInput) {
 	var (
-		bindAddress = fmt.Sprintf(":%d", sbn.Port)
+		bindAddress = fmt.Sprintf(":%d", nni.Port)
 		osRuntime   = *environment.OperatingSystemDetect()
-		callAddress = fmt.Sprintf("%s:%d", sbn.HostAddress, sbn.Port)
+		callAddress = fmt.Sprintf("%s:%d", nni.HostAddress, nni.Port)
 	)
 
-	if sbn.Bind && sbn.Reverse {
+	if nni.Bind && nni.Reverse {
 		log.Fatalln("Cannot bind and reverse at the same time.")
 	}
 
-	if sbn.Bind {
+	if nni.Bind {
 		BindLogic(bindAddress, osRuntime)
 	}
-	if sbn.Reverse {
+	if nni.Reverse {
 		ReverseLogic(callAddress, osRuntime)
 	}
 }

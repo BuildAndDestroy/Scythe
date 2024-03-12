@@ -48,35 +48,30 @@ func CommandCheck(command string) {
 }
 
 func UserCommands() {
-
+	// Parse user commands to execute program
 	var command string = os.Args[1]
 
 	ArgLengthCheck()
 	CommandCheck(command)
+
 	fs := flag.NewFlagSet(command, flag.ExitOnError)
 	switch command {
 	case Http:
 		log.Printf("We made it to %s", Http)
 	case Netcat:
-		// log.Printf("We made it to %s", Netcat)
 		var nni netcat.NetcatInput
 		nni.SetNetcatInput(fs)
 		fs.Parse(os.Args[2:])
-		var sbn netcat.NetcatStruct
-		sbn.NetcatBind(&nni)
+		netcat.NetcatBind(&nni)
 	case Proxy:
 		log.Printf("We made it to %s", Proxy)
 	case Scanner:
 		log.Printf("We made it to %s", Scanner)
 	case FileTransfer:
-		// log.Printf("We made it to %s", FileTransfer)
 		var ft filetransfer.FileTransfer
 		ft.FileTransferInput(fs)
 		fs.Parse(os.Args[2:])
-		// var ftInit filetransfer.FileTransfer
 		filetransfer.FileTransferLogic(&ft)
-		// ftInit.FileTransferListen(&ft)
-
 	default:
 		log.Fatalln("Subcommand does not exist")
 	}
