@@ -58,7 +58,7 @@ func UserCommands() {
 	case Http:
 		log.Printf("We made it to %s", Http)
 	case Netcat:
-		log.Printf("We made it to %s", Netcat)
+		// log.Printf("We made it to %s", Netcat)
 		var nni netcat.NetcatInput
 		nni.SetNetcatInput(fs)
 		fs.Parse(os.Args[2:])
@@ -69,7 +69,7 @@ func UserCommands() {
 	case Scanner:
 		log.Printf("We made it to %s", Scanner)
 	case FileTransfer:
-		log.Printf("We made it to %s", FileTransfer)
+		// log.Printf("We made it to %s", FileTransfer)
 		var ft filetransfer.FileTransfer
 		ft.FileTransferInput(fs)
 		fs.Parse(os.Args[2:])
