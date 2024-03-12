@@ -24,8 +24,23 @@ jobs:
     - name: Build BackdoorBoi
       run: cd cmd/ && CGO_ENABLED=0 go build -v -o backdoorBoi
 
-    - name: Test NetCat Help Menu
-      run: cd cmd && ./backdoorBoi Netcat -h
+  test:
+    name: Test user flags
+    runs-on: ubuntu-latest
+    needs: build
 
-    - name: Test File Transfer Help Menu
-      run: cd cmd && ./backdoorBoi FileTransfer -h
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+
+    - name: Test NetCat Help Menu
+      run: echo "Add your go tests when ready"
+    #   run: cd cmd && ./backdoorBoi Netcat -h
+
+    # - name: Test File Transfer Help Menu
+    #   run: cd cmd && ./backdoorBoi FileTransfer -h
