@@ -24,6 +24,8 @@ jobs:
     - name: Build BackdoorBoi
       run: cd cmd/ && CGO_ENABLED=0 go build -v -o backdoorBoi
 
-    - name: Test Help Menu
+    - name: Test NetCat Help Menu
       run: cd cmd && ./backdoorBoi Netcat -h
 
+    - name: Test File Transfer Help Menu
+      run: cd cmd && ./backdoorBoi FileTransfer -h
