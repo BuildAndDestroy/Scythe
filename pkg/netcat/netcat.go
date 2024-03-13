@@ -183,7 +183,7 @@ func CallBindLogic(callAddress string, osRuntime string) {
 	}
 	defer caller.Close()
 
-	log.Printf("[*] Rev shell spawning, connecting to %s", callAddress)
+	log.Printf("[*] Bind shell spawning, connecting to %s", callAddress)
 
 	switch osRuntime {
 	case "linux":
