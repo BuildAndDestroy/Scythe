@@ -120,8 +120,6 @@ func processListenerConnect(conn net.Conn, fileName string) {
 
 }
 
-// Below should work
-
 func isUTF8(data []byte) bool {
 	return utf8.Valid(data)
 }

