@@ -174,5 +174,5 @@ func RevHandleDarwin(caller net.Conn) {
 }
 
 func CallBindLogic(callAddress string, osRuntime string) {
-
+	log.Println("Caller logic hit")
 }
