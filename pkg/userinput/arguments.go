@@ -28,7 +28,6 @@ func UserInputCheck() {
 
 func ArgLengthCheck() {
 	// Check for less than 1 arg.
-	// log.Println(len(os.Args))
 	if len(os.Args) <= 2 {
 		log.Fatalln(ExceptionStatement)
 	}
