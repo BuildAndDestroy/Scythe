@@ -61,7 +61,7 @@ func UserCommands() {
 		var nni netcat.NetcatInput
 		nni.SetNetcatInput(fs)
 		fs.Parse(os.Args[2:])
-		netcat.NetcatBind(&nni)
+		netcat.NetcatArgLogic(&nni)
 	case Proxy:
 		log.Printf("We made it to %s", Proxy)
 	case Scanner:
