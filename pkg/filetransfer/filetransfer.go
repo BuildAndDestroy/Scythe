@@ -8,266 +8,221 @@ import (
 	"log"
 	"net"
 	"os"
-	"unicode/utf8"
+	"path/filepath"
+	"strings"
 )
 
 type FileTransfer struct {
 	Port     int
 	FileName string
 	Listen   bool
+	Download bool
 	Send     bool
 	Hostname string
 }
 
 func (ft *FileTransfer) FileTransferInput(fs *flag.FlagSet) {
-	fs.IntVar(&ft.Port, "port", 8080, "Provide a port to bind to on this host")
-	fs.StringVar(&ft.FileName, "filename", "tempfile1", "Provide the filename you want to transfer/receive.")
-	fs.BoolVar(&ft.Listen, "listen", false, "Listen for a file to be transferred to me.")
-	fs.BoolVar(&ft.Send, "send", false, "Initiate a connection out and send a file.")
-	fs.StringVar(&ft.Hostname, "hostname", "127.0.0.1", "Hostname we are transfering to. IP Address works as well.")
+	fs.IntVar(&ft.Port, "port", 8080, "Port to bind or connect to")
+	fs.StringVar(&ft.FileName, "filename", "", "Filename to transfer or request")
+	fs.BoolVar(&ft.Listen, "listen", false, "Act as server to serve or receive files")
+	fs.BoolVar(&ft.Download, "download", false, "Act as client to download a file")
+	fs.BoolVar(&ft.Send, "send", false, "Act as client to send a file")
+	fs.StringVar(&ft.Hostname, "hostname", "127.0.0.1", "Server hostname or IP address")
 }
 
+// Logic check. Make sure user input is usable
 func FileTransferLogic(fti *FileTransfer) {
-	var (
-		bindAddress   = fmt.Sprintf(":%d", fti.Port)
-		fileName      = fti.FileName
-		senderAddress = fmt.Sprintf("%s:%d", fti.Hostname, fti.Port)
-	)
-
 	if fti.Listen && fti.Send {
 		log.Fatalln("[*] Either Send or Listen, unable to do both.")
 	}
 
 	if fti.Listen {
-		ListenerLogic(bindAddress, fileName)
-	}
-
-	if fti.Send {
-		SenderLogic(senderAddress, fileName)
+		RunServer(fti.Port)
+	} else if fti.Download {
+		RunDownloadClient(fti.Hostname, fti.Port, fti.FileName)
+	} else if fti.Send {
+		RunSendClient(fti.Hostname, fti.Port, fti.FileName)
+	} else {
+		log.Println("You must specify one of --listen, --download, or --send")
 	}
 }
 
-func SenderLogic(senderAddress string, localFileName string) {
-	conn, err := net.Dial("tcp", senderAddress)
+// Server Logic
+func RunServer(port int) {
+	address := fmt.Sprintf(":%d", port)
+	listener, err := net.Listen("tcp", address)
 	if err != nil {
-		log.Fatalf("Error connecting: %s\n", err)
-	}
-	defer conn.Close()
-
-	inputFile, err := os.Open(localFileName)
-	if err != nil {
-		log.Fatalf("Error unable to open file: %s\n", err)
-	}
-	defer inputFile.Close()
-
-	// Copy the file content to the TCP connection
-	_, err = io.Copy(conn, inputFile)
-	if err != nil {
-		log.Fatalf("Error sending file: %s\n", err)
-	}
-
-	log.Println("File sent successfully!")
-}
-
-func ListenerLogic(bindAddress string, fileName string) {
-	listener, err := net.Listen("tcp", bindAddress)
-	if err != nil {
-		log.Fatalf("[-] Error listening: %s", err)
+		log.Fatalf("Error starting server: %s", err)
 	}
 	defer listener.Close()
 
-	log.Printf("[*] Listening for connections on %s", bindAddress)
+	log.Printf("Server listening on %s\n", address)
+
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			log.Fatalf("[-] Unable to accept connection from %s: %s", conn.RemoteAddr().String(), err)
+			log.Printf("Error accepting connection: %s", err)
+			continue
 		}
-		go processListenerConnect(conn, fileName)
+		go handleClient(conn)
 	}
 }
 
-func processListenerConnect(conn net.Conn, fileName string) {
+// Accept Client connection
+func handleClient(conn net.Conn) {
 	defer conn.Close()
 
-	log.Printf("Client %s connected. Receiving file...", conn.RemoteAddr())
-
-	// Create a new file to write the received content
-	outputFile, err := os.Create(fileName)
-	if err != nil {
-		log.Fatalf("Error creating file: %s\n", err)
-	}
-	defer outputFile.Close()
-
-	// Create a buffer reader for the TCP connection
 	reader := bufio.NewReader(conn)
 
-	// Create a buffer writer for writing to the file
-	writer := bufio.NewWriter(outputFile)
-
-	// Read data from the TCP connection and write to the file
-	_, err = io.Copy(writer, reader)
+	// Read command type: "DOWNLOAD" or "SEND"
+	command, err := reader.ReadString('\n')
 	if err != nil {
-		log.Fatalf("Error receiving file: %s\n", err)
-	}
-
-	// Flush any unwritten data from the writer to the file
-	err = writer.Flush()
-	if err != nil {
-		log.Fatalf("Error flushing data to file: %s", err)
-	}
-
-	log.Println("File received successfully!")
-
-}
-
-func isUTF8(data []byte) bool {
-	return utf8.Valid(data)
-}
-
-func CheckForBinary(fileInputName string) {
-	// Open the input file
-	inputFile, err := os.Open(fileInputName)
-	if err != nil {
-		log.Fatalf("Error unable to open %s: %s", fileInputName, err)
-	}
-	defer inputFile.Close()
-
-	// Create a buffer reader for the input file
-	reader := bufio.NewReader(inputFile)
-
-	// Flag to track if the file is binary
-	isBinary := false
-
-	for {
-		// Read a chunk of data from the input file
-		buffer := make([]byte, 512) // Maximum of 512 bytes for initial check
-		bytesRead, err := reader.Read(buffer)
-		if err != nil && err != io.EOF {
-			log.Fatalf("Error unable to read the first 512 bytes: %s", err)
-		}
-
-		// Check if the content is valid UTF-8
-		if !isUTF8(buffer[:bytesRead]) {
-			isBinary = true
-			break
-		}
-
-		// If the end of the input file is reached, break the loop
-		if err == io.EOF {
-			break
-		}
-	}
-
-	if isBinary {
-		// log.Println("The file is binary.")
-		WriteBinaryFile(fileInputName)
-
-	} else {
-		// log.Println("The file is plain text.")
-		WriteTextFiles(fileInputName)
-
-	}
-}
-
-func SendFile(fileInputName string) {
-	// Open the input file
-	inputFile, err := os.Open(fileInputName)
-	if err != nil {
-		log.Fatalf("Error: %s\n", err)
-	}
-	defer inputFile.Close()
-
-	// Connect to the TCP server
-	conn, err := net.Dial("tcp", "localhost:8080")
-	if err != nil {
-		log.Fatalf("Error connecting to server: %s\n", err)
-	}
-	defer conn.Close()
-
-	// Copy the file content to the TCP connection
-	_, err = io.Copy(conn, inputFile)
-	if err != nil {
-		log.Fatalf("Error sending file: %s\n", err)
-	}
-
-	fmt.Println("File sent successfully!")
-}
-
-func WriteBinaryFile(fileName string) {
-	// Open the input file
-	inputFile, err := os.Open(fileName)
-	if err != nil {
-		log.Fatalf("Error Unable to open input file: %s", err)
+		log.Printf("Error reading command: %s", err)
 		return
 	}
-	defer inputFile.Close()
+	command = strings.TrimSpace(command)
 
-	// Create the output file
-	outputFile, err := os.Create("output.pdf")
+	switch command {
+	case "DOWNLOAD":
+		handleDownloadRequest(conn, reader)
+	case "SEND":
+		handleFileReceive(conn, reader)
+	default:
+		log.Printf("Unknown command: %s", command)
+		conn.Write([]byte("ERROR: Unknown command\n"))
+	}
+}
+
+// Handle file download request from client
+func handleDownloadRequest(conn net.Conn, reader *bufio.Reader) {
+	// Read requested file name
+	fileName, err := reader.ReadString('\n')
 	if err != nil {
-		log.Fatalf("Error unable to create output file: %s", err)
+		log.Printf("Error reading file name: %s", err)
+		return
+	}
+	fileName = strings.TrimSpace(fileName)
+	log.Printf("Client requested file: %s", fileName)
+
+	// Open the requested file
+	file, err := os.Open(fileName)
+	if err != nil {
+		log.Printf("Error opening file %s: %s", fileName, err)
+		conn.Write([]byte("ERROR: File not found\n"))
+		return
+	}
+	defer file.Close()
+
+	// Send confirmation to client
+	conn.Write([]byte("OK\n"))
+
+	// Send file data
+	_, err = io.Copy(conn, file)
+	if err != nil {
+		log.Printf("Error sending file: %s", err)
+		return
+	}
+
+	log.Printf("File %s sent successfully", fileName)
+}
+
+// Handle file receive from client
+func handleFileReceive(conn net.Conn, reader *bufio.Reader) {
+	// Read file name from the client
+	fileName, err := reader.ReadString('\n')
+	if err != nil {
+		log.Printf("Error reading file name: %s", err)
+		return
+	}
+	fileName = strings.TrimSpace(fileName)
+	log.Printf("Receiving file: %s", fileName)
+
+	// Create the file to save the received data
+	outputFile, err := os.Create(fileName)
+	if err != nil {
+		log.Printf("Error creating file %s: %s", fileName, err)
+		conn.Write([]byte("ERROR: Could not create file\n"))
+		return
 	}
 	defer outputFile.Close()
 
-	// Copy the contents of the input file to the output file
-	_, err = io.Copy(outputFile, inputFile)
+	// Copy data from connection to file
+	_, err = io.Copy(outputFile, reader)
 	if err != nil {
-		log.Fatalf("Error unable to copy contents of input to output file: %s", err)
+		log.Printf("Error receiving file: %s", err)
+		return
 	}
 
-	log.Println("File copied successfully!")
+	log.Printf("File %s received successfully", fileName)
 }
 
-func WriteTextFiles(fileName string) {
-	//Use this function when working with text files
-
-	// Open the input file
-	inputFile, err := os.Open(fileName)
+// Client Logic: Download file
+func RunDownloadClient(hostname string, port int, fileName string) {
+	address := fmt.Sprintf("%s:%d", hostname, port)
+	conn, err := net.Dial("tcp", address)
 	if err != nil {
-		log.Fatalf("Error opening the input file: %s", err)
+		log.Fatalf("Error connecting to server: %s", err)
 	}
-	defer inputFile.Close()
+	defer conn.Close()
 
-	// Create the output file
-	outputFile, err := os.Create("output.txt")
+	// Send command and file name
+	fmt.Fprintf(conn, "DOWNLOAD\n")
+	fmt.Fprintf(conn, "%s\n", fileName)
+
+	// Read server response
+	reader := bufio.NewReader(conn)
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		log.Fatalf("Error reading server response: %s", err)
+	}
+	response = strings.TrimSpace(response)
+
+	if response != "OK" {
+		log.Fatalf("Server responded with error: %s", response)
+	}
+
+	// Create local file to save the downloaded content
+	outputFileName := filepath.Base(fileName)
+	outputFile, err := os.Create(outputFileName)
 	if err != nil {
 		log.Fatalf("Error creating output file: %s", err)
 	}
 	defer outputFile.Close()
 
-	// Create a reader for the input file
-	reader := bufio.NewReader(inputFile)
-
-	// Create a writer for the output file
-	writer := bufio.NewWriter(outputFile)
-
-	// Create a dynamic buffer to store file contents
-	buffer := make([]byte, 1024) // Initial buffer size
-
-	for {
-		// Read from the input file into the buffer
-		bytesRead, err := reader.Read(buffer)
-		if err != nil && err.Error() != "EOF" {
-			log.Fatalf("Error reading from input file into buffer: %s", err)
-		}
-
-		// Write the buffer content to the output file
-		_, err = writer.Write(buffer[:bytesRead])
-		if err != nil {
-			log.Fatalf("Error writing buffer content to output file: %s", err)
-		}
-
-		// If the end of the input file is reached, break the loop
-		if bytesRead < len(buffer) {
-			break
-		}
-	}
-
-	// Flush any unwritten data from the writer to the output file
-	err = writer.Flush()
+	// Receive file data
+	_, err = io.Copy(outputFile, reader)
 	if err != nil {
-		log.Fatalf("Error unable to flush unwritten data from writer to output file: %s\n", err)
+		log.Fatalf("Error downloading file: %s", err)
 	}
 
-	log.Println("File copied successfully!")
+	log.Printf("File %s downloaded successfully", outputFileName)
+}
+
+// Client Logic: Send file
+func RunSendClient(hostname string, port int, fileName string) {
+	address := fmt.Sprintf("%s:%d", hostname, port)
+	conn, err := net.Dial("tcp", address)
+	if err != nil {
+		log.Fatalf("Error connecting to server: %s", err)
+	}
+	defer conn.Close()
+
+	// Open the file to be sent
+	file, err := os.Open(fileName)
+	if err != nil {
+		log.Fatalf("Error opening file: %s", err)
+	}
+	defer file.Close()
+
+	// Send command and file name
+	fmt.Fprintf(conn, "SEND\n")
+	fmt.Fprintf(conn, "%s\n", filepath.Base(fileName))
+
+	// Send file data
+	_, err = io.Copy(conn, file)
+	if err != nil {
+		log.Fatalf("Error sending file: %s", err)
+	}
+
+	log.Printf("File %s sent successfully", fileName)
 }
