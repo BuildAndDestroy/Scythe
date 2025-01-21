@@ -67,10 +67,14 @@ func UserCommands() {
 	case Scanner:
 		log.Printf("We made it to %s", Scanner)
 	case FileTransfer:
-		var ft filetransfer.FileTransfer
+		ft := &filetransfer.FileTransfer{}
+		fs := flag.NewFlagSet("filetransfer", flag.ExitOnError)
 		ft.FileTransferInput(fs)
-		fs.Parse(os.Args[2:])
-		filetransfer.FileTransferLogic(&ft)
+		err := fs.Parse(os.Args[2:])
+		if err != nil {
+			log.Fatalf("Error parsing flags: %s", err)
+		}
+		filetransfer.FileTransferLogic(ft)
 	default:
 		log.Fatalln("Subcommand does not exist")
 	}
