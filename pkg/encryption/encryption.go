@@ -6,7 +6,6 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
-	"io/ioutil"
 	"log"
 	"math/big"
 	"net"
@@ -64,7 +63,7 @@ func GenerateCaCertificate() {
 
 func GenerateServerCertificateWithCA() {
 	// Load CA certificate
-	caCertPEM, err := ioutil.ReadFile("ca.crt")
+	caCertPEM, err := os.ReadFile("ca.crt")
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -78,7 +77,7 @@ func GenerateServerCertificateWithCA() {
 	}
 
 	// Load CA private key
-	caKeyPEM, err := ioutil.ReadFile("ca.key")
+	caKeyPEM, err := os.ReadFile("ca.key")
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -136,7 +135,7 @@ func GenerateServerCertificateWithCA() {
 
 func GenerateClientCertificateWithCA() {
 	// Load CA certificate
-	caCertPEM, err := ioutil.ReadFile("ca.crt")
+	caCertPEM, err := os.ReadFile("ca.crt")
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -150,7 +149,7 @@ func GenerateClientCertificateWithCA() {
 	}
 
 	// Load CA private key
-	caKeyPEM, err := ioutil.ReadFile("ca.key")
+	caKeyPEM, err := os.ReadFile("ca.key")
 	if err != nil {
 		log.Fatalln(err)
 	}
