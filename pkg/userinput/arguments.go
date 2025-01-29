@@ -7,6 +7,7 @@ import (
 
 	"github.com/BuildAndDestroy/backdoorBoi/pkg/filetransfer"
 	"github.com/BuildAndDestroy/backdoorBoi/pkg/netcat"
+	"github.com/BuildAndDestroy/backdoorBoi/pkg/proxies"
 )
 
 // First layer flags that must be called
@@ -63,12 +64,18 @@ func UserCommands() {
 		fs.Parse(os.Args[2:])
 		netcat.NetcatArgLogic(&nni)
 	case Proxy:
-		log.Printf("We made it to %s", Proxy)
+		pxyFlags := &proxies.Flags{}
+		pxyFlags.ProxyFlagInput(fs)
+		err := fs.Parse(os.Args[2:])
+		if err != nil {
+			log.Fatalf("Error parsing flags: %s", err)
+		}
+		// Start SOCKS5 server
+		proxies.ProxyLogic(pxyFlags)
 	case Scanner:
 		log.Printf("We made it to %s", Scanner)
 	case FileTransfer:
 		ft := &filetransfer.FileTransfer{}
-		fs := flag.NewFlagSet("filetransfer", flag.ExitOnError)
 		ft.FileTransferInput(fs)
 		err := fs.Parse(os.Args[2:])
 		if err != nil {
