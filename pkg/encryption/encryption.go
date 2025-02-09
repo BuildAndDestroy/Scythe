@@ -3,6 +3,7 @@ package encryption
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
@@ -309,4 +310,44 @@ func GenerateSelfSignedClientCert() ([]byte, []byte, error) {
 	}
 	pem.Encode(keyOut, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(clientKey)})
 	keyOut.Close() */
+}
+
+func SetupTLSClient() *tls.Config {
+	//Generate client cert and key
+	certPEM, keyPEM, err := GenerateSelfSignedClientCert()
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		log.Fatalf("[-] Client: loadkeys: %s\n", err)
+	}
+
+	// Configure TLS with client certificate
+	tlsConfig := &tls.Config{
+		Certificates:       []tls.Certificate{cert},
+		InsecureSkipVerify: true,
+	}
+	return tlsConfig
+}
+
+func SetupTLSServer() *tls.Config {
+	//Generate server cert and key
+	certPEM, keyPEM, err := GenerateSelfSignedServerCert()
+	if err != nil {
+		log.Fatalln(err)
+	}
+	// Load server's certificate and private key
+	// cert, err := tls.LoadX509KeyPair("server.crt", "server.key")
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		log.Fatalf("[-] Server: loadkeys: %s", err)
+	}
+
+	// Configure TLS with server certificate
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+	}
+	return tlsConfig
 }
