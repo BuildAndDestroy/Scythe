@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/BuildAndDestroy/backdoorBoi/pkg/encryption"
+	"github.com/BuildAndDestroy/backdoorBoi/pkg/proxies"
 )
 
 type FileTransfer struct {
@@ -23,6 +24,7 @@ type FileTransfer struct {
 	Send     bool
 	Hostname string
 	Tls      bool
+	Proxy    string
 }
 
 func (ft *FileTransfer) FileTransferInput(fs *flag.FlagSet) {
@@ -33,6 +35,7 @@ func (ft *FileTransfer) FileTransferInput(fs *flag.FlagSet) {
 	fs.BoolVar(&ft.Send, "send", false, "Act as client to send a file")
 	fs.StringVar(&ft.Hostname, "hostname", "127.0.0.1", "Server hostname or IP address")
 	fs.BoolVar(&ft.Tls, "tls", false, "Use encryption. RECOMMENDED")
+	fs.StringVar(&ft.Proxy, "proxy", "", "Use a SOCKS5 proxy between us and target, example 127.0.0.1:9050")
 }
 
 // Logic check. Make sure user input is usable
@@ -43,20 +46,41 @@ func FileTransferLogic(fti *FileTransfer) {
 	if fti.Listen && !fti.Tls {
 		RunServer(fti.Port)
 	}
+	if fti.Listen && fti.Tls {
+		tlsConfig := encryption.SetupTLSServer()
+		TlsRunServer(fti.Port, tlsConfig)
+	}
+	if fti.Download && !fti.Tls && fti.Proxy != "" {
+		ProxyRunDownloadClient(fti.Hostname, fti.Port, fti.FileName, fti.Proxy)
+		return
+	}
+	if fti.Download && fti.Tls && fti.Proxy != "" {
+		tlsConfig := encryption.SetupTLSClient()
+		ProxyTlsRunDownloadClient(fti.Hostname, fti.Port, fti.FileName, tlsConfig, fti.Proxy)
+		return
+	}
 	if fti.Download && !fti.Tls {
 		RunDownloadClient(fti.Hostname, fti.Port, fti.FileName)
+	}
+	if fti.Download && fti.Tls {
+		tlsConfig := encryption.SetupTLSClient()
+		TlsRunDownloadClient(fti.Hostname, fti.Port, fti.FileName, tlsConfig)
+	}
+	if fti.Send && !fti.Tls && fti.Proxy != "" { // UPDATE ME
+		ProxyRunSendClient(fti.Hostname, fti.Port, fti.FileName, fti.Proxy)
+		return
+	}
+	if fti.Send && fti.Tls && fti.Proxy != "" { // UPDATE ME
+		tlsConfig := encryption.SetupTLSClient()
+		ProxyTlsRunSendClient(fti.Hostname, fti.Port, fti.FileName, tlsConfig, fti.Proxy)
+		return
 	}
 	if fti.Send && !fti.Tls {
 		RunSendClient(fti.Hostname, fti.Port, fti.FileName)
 	}
-	if fti.Listen && fti.Tls {
-		TlsRunServer(fti.Port)
-	}
-	if fti.Download && fti.Tls {
-		TlsRunDownloadClient(fti.Hostname, fti.Port, fti.FileName)
-	}
 	if fti.Send && fti.Tls {
-		TlsRunSendClient(fti.Hostname, fti.Port, fti.FileName)
+		tlsConfig := encryption.SetupTLSClient()
+		TlsRunSendClient(fti.Hostname, fti.Port, fti.FileName, tlsConfig)
 	}
 	if fti.Listen && fti.Download && fti.Send {
 		log.Fatalln("You must specify one of --listen, --download, or --send")
@@ -64,22 +88,7 @@ func FileTransferLogic(fti *FileTransfer) {
 }
 
 // Server logic but with TLS
-func TlsRunServer(port int) {
-	//Generate server cert and key
-	certPEM, keyPEM, err := encryption.GenerateSelfSignedServerCert()
-	if err != nil {
-		log.Fatalln(err)
-	}
-	// Load server's certificate and private key
-	cert, err := tls.X509KeyPair(certPEM, keyPEM)
-	if err != nil {
-		log.Fatalf("[-] Server: loadkeys: %s", err)
-	}
-
-	// Configure TLS with server certificate
-	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{cert},
-	}
+func TlsRunServer(port int, tlsConfig *tls.Config) {
 	// Create a TLS listener
 	address := fmt.Sprintf(":%d", port)
 	listener, err := tls.Listen("tcp", address, tlsConfig)
@@ -209,27 +218,97 @@ func handleFileReceive(conn net.Conn, reader *bufio.Reader) {
 	log.Printf("File %s received successfully", fileName)
 }
 
+func ProxyTlsRunDownloadClient(hostname string, port int, fileName string, tlsConfig *tls.Config, proxyAddress string) {
+	var tlsBoolean bool = true
+	address := fmt.Sprintf("%s:%d", hostname, port)
+	conn, err := proxies.DialThroughSOCKS5(proxyAddress, address, tlsConfig, tlsBoolean)
+
+	if err != nil {
+		log.Fatalf("Error connecting to server: %s", err)
+	}
+	defer conn.Close()
+
+	// Send command and file name
+	fmt.Fprintf(conn, "DOWNLOAD\n")
+	fmt.Fprintf(conn, "%s\n", fileName)
+
+	// Read server response
+	reader := bufio.NewReader(conn)
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		log.Fatalf("Error reading server response: %s", err)
+	}
+	response = strings.TrimSpace(response)
+
+	if response != "OK" {
+		log.Fatalf("Server responded with error: %s", response)
+	}
+
+	// Create local file to save the downloaded content
+	outputFileName := filepath.Base(fileName)
+	outputFile, err := os.Create(outputFileName)
+	if err != nil {
+		log.Fatalf("Error creating output file: %s", err)
+	}
+	defer outputFile.Close()
+
+	// Receive file data
+	_, err = io.Copy(outputFile, reader)
+	if err != nil {
+		log.Fatalf("Error downloading file: %s", err)
+	}
+
+	log.Printf("File %s downloaded successfully", outputFileName)
+}
+
 // Client Logic: Download file over TLS
-func TlsRunDownloadClient(hostname string, port int, fileName string) {
-	//Generate client cert and key
-	certPEM, keyPEM, err := encryption.GenerateSelfSignedClientCert()
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	cert, err := tls.X509KeyPair(certPEM, keyPEM)
-	if err != nil {
-		log.Fatalf("client: loadkeys: %s\n", err)
-	}
-
-	// Configure TLS with client certificate
-	tlsConfig := &tls.Config{
-		Certificates:       []tls.Certificate{cert},
-		InsecureSkipVerify: true,
-	}
-
+func TlsRunDownloadClient(hostname string, port int, fileName string, tlsConfig *tls.Config) {
 	address := fmt.Sprintf("%s:%d", hostname, port)
 	conn, err := tls.Dial("tcp", address, tlsConfig)
+	if err != nil {
+		log.Fatalf("Error connecting to server: %s", err)
+	}
+	defer conn.Close()
+
+	// Send command and file name
+	fmt.Fprintf(conn, "DOWNLOAD\n")
+	fmt.Fprintf(conn, "%s\n", fileName)
+
+	// Read server response
+	reader := bufio.NewReader(conn)
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		log.Fatalf("Error reading server response: %s", err)
+	}
+	response = strings.TrimSpace(response)
+
+	if response != "OK" {
+		log.Fatalf("Server responded with error: %s", response)
+	}
+
+	// Create local file to save the downloaded content
+	outputFileName := filepath.Base(fileName)
+	outputFile, err := os.Create(outputFileName)
+	if err != nil {
+		log.Fatalf("Error creating output file: %s", err)
+	}
+	defer outputFile.Close()
+
+	// Receive file data
+	_, err = io.Copy(outputFile, reader)
+	if err != nil {
+		log.Fatalf("Error downloading file: %s", err)
+	}
+
+	log.Printf("File %s downloaded successfully", outputFileName)
+}
+
+// Download a file over a SOCKS5 proxy connection
+func ProxyRunDownloadClient(hostname string, port int, fileName, proxyAddress string) {
+	var tlsBoolean bool = false
+	var tlsConfig *tls.Config
+	address := fmt.Sprintf("%s:%d", hostname, port)
+	conn, err := proxies.DialThroughSOCKS5(proxyAddress, address, tlsConfig, tlsBoolean)
 	if err != nil {
 		log.Fatalf("Error connecting to server: %s", err)
 	}
@@ -310,26 +389,69 @@ func RunDownloadClient(hostname string, port int, fileName string) {
 	log.Printf("File %s downloaded successfully", outputFileName)
 }
 
+func ProxyTlsRunSendClient(hostname string, port int, fileName string, tlsConfig *tls.Config, proxyAddress string) {
+	var tlsBoolean bool = true
+	address := fmt.Sprintf("%s:%d", hostname, port)
+	conn, err := proxies.DialThroughSOCKS5(proxyAddress, address, tlsConfig, tlsBoolean)
+	if err != nil {
+		log.Fatalf("Error connecting to server: %s", err)
+	}
+	defer conn.Close()
+
+	// Open the file to be sent
+	file, err := os.Open(fileName)
+	if err != nil {
+		log.Fatalf("Error opening file: %s", err)
+	}
+	defer file.Close()
+
+	// Send command and file name
+	fmt.Fprintf(conn, "SEND\n")
+	fmt.Fprintf(conn, "%s\n", filepath.Base(fileName))
+
+	// Send file data
+	_, err = io.Copy(conn, file)
+	if err != nil {
+		log.Fatalf("Error sending file: %s", err)
+	}
+
+	log.Printf("File %s sent successfully", fileName)
+}
+
 // Client Logic: Send file over TLS
-func TlsRunSendClient(hostname string, port int, fileName string) {
-	//Generate client cert and key
-	certPEM, keyPEM, err := encryption.GenerateSelfSignedClientCert()
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	cert, err := tls.X509KeyPair(certPEM, keyPEM)
-	if err != nil {
-		log.Fatalf("client: loadkeys: %s\n", err)
-	}
-
-	// Configure TLS with client certificate
-	tlsConfig := &tls.Config{
-		Certificates:       []tls.Certificate{cert},
-		InsecureSkipVerify: true,
-	}
+func TlsRunSendClient(hostname string, port int, fileName string, tlsConfig *tls.Config) {
 	address := fmt.Sprintf("%s:%d", hostname, port)
 	conn, err := tls.Dial("tcp", address, tlsConfig)
+	if err != nil {
+		log.Fatalf("Error connecting to server: %s", err)
+	}
+	defer conn.Close()
+
+	// Open the file to be sent
+	file, err := os.Open(fileName)
+	if err != nil {
+		log.Fatalf("Error opening file: %s", err)
+	}
+	defer file.Close()
+
+	// Send command and file name
+	fmt.Fprintf(conn, "SEND\n")
+	fmt.Fprintf(conn, "%s\n", filepath.Base(fileName))
+
+	// Send file data
+	_, err = io.Copy(conn, file)
+	if err != nil {
+		log.Fatalf("Error sending file: %s", err)
+	}
+
+	log.Printf("File %s sent successfully", fileName)
+}
+
+func ProxyRunSendClient(hostname string, port int, fileName, proxyAddress string) {
+	var tlsBoolean bool = false
+	var tlsConfig *tls.Config
+	address := fmt.Sprintf("%s:%d", hostname, port)
+	conn, err := proxies.DialThroughSOCKS5(proxyAddress, address, tlsConfig, tlsBoolean)
 	if err != nil {
 		log.Fatalf("Error connecting to server: %s", err)
 	}
