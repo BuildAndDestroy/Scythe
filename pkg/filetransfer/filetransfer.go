@@ -52,10 +52,12 @@ func FileTransferLogic(fti *FileTransfer) {
 	}
 	if fti.Download && !fti.Tls && fti.Proxy != "" {
 		ProxyRunDownloadClient(fti.Hostname, fti.Port, fti.FileName, fti.Proxy)
+		return
 	}
 	if fti.Download && fti.Tls && fti.Proxy != "" {
 		tlsConfig := encryption.SetupTLSClient()
 		ProxyTlsRunDownloadClient(fti.Hostname, fti.Port, fti.FileName, tlsConfig, fti.Proxy)
+		return
 	}
 	if fti.Download && !fti.Tls {
 		RunDownloadClient(fti.Hostname, fti.Port, fti.FileName)
@@ -66,10 +68,12 @@ func FileTransferLogic(fti *FileTransfer) {
 	}
 	if fti.Send && !fti.Tls && fti.Proxy != "" { // UPDATE ME
 		ProxyRunSendClient(fti.Hostname, fti.Port, fti.FileName, fti.Proxy)
+		return
 	}
 	if fti.Send && fti.Tls && fti.Proxy != "" { // UPDATE ME
 		tlsConfig := encryption.SetupTLSClient()
 		ProxyTlsRunSendClient(fti.Hostname, fti.Port, fti.FileName, tlsConfig, fti.Proxy)
+		return
 	}
 	if fti.Send && !fti.Tls {
 		RunSendClient(fti.Hostname, fti.Port, fti.FileName)

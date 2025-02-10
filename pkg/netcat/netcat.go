@@ -58,9 +58,11 @@ func NetcatArgLogic(nni *NetcatInput) {
 	if nni.Reverse && nni.Tls && nni.Proxy != "" {
 		tlsConfig := encryption.SetupTLSClient()
 		ProxyTlsReverseLogic(nni.Proxy, callAddress, osRuntime, tlsConfig)
+		return
 	}
 	if nni.Reverse && !nni.Tls && nni.Proxy != "" {
 		ProxyReverseLogic(nni.Proxy, callAddress, osRuntime)
+		return
 	}
 	if nni.Reverse && !nni.Tls {
 		ReverseLogic(callAddress, osRuntime)
@@ -72,9 +74,11 @@ func NetcatArgLogic(nni *NetcatInput) {
 	if nni.Caller && nni.Tls && nni.Proxy != "" {
 		tlsConfig := encryption.SetupTLSClient()
 		ProxyTlsBindLogicClient(nni.Proxy, callAddress, tlsConfig)
+		return
 	}
 	if nni.Caller && !nni.Tls && nni.Proxy != "" {
 		ProxyCallBindLogic(nni.Proxy, callAddress)
+		return
 	}
 	if nni.Caller && !nni.Tls {
 		CallBindLogic(callAddress)
