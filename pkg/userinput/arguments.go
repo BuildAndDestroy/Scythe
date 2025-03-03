@@ -68,11 +68,6 @@ func UserCommands() {
 		if err != nil {
 			log.Fatalf("[-] Error parsing flags: %s\n", err)
 		}
-		// output, err := httpclient.MakeRequest(&opts)
-		// if err != nil {
-		// 	log.Fatalf("[-] Error making the request: %s\n", err)
-		// }
-		// log.Println(output)
 		// Create result and error channels
 		resultChan := make(chan *httpclient.ResponseData)
 		errorChan := make(chan error)
@@ -94,10 +89,7 @@ func UserCommands() {
 					log.Printf("[-] Error: %s\n", err)
 				}
 			case <-stopChan:
-				// fmt.Println("\n[-] CTRL+C detected. Stopping the program...")
 				fmt.Println("\n[-] CTRL+C detected. Stopping the program...")
-				// close(resultChan)
-				// close(errorChan)
 				return
 			}
 		}
