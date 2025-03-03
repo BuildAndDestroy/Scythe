@@ -321,7 +321,7 @@ func SetupTLSClient() *tls.Config {
 
 	cert, err := tls.X509KeyPair(certPEM, keyPEM)
 	if err != nil {
-		log.Fatalf("[-] Client: loadkeys: %s\n", err)
+		log.Fatalf("[-] Loadkeys: %s\n", err)
 	}
 
 	// Configure TLS with client certificate

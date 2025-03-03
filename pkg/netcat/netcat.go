@@ -47,7 +47,7 @@ func NetcatArgLogic(nni *NetcatInput) {
 		callAddress = fmt.Sprintf("%s:%d", nni.HostAddress, nni.Port)
 	)
 	NetcatArgumentExceptions(nni)
-	//
+
 	if nni.Bind && !nni.Tls {
 		BindLogic(bindAddress, osRuntime)
 	}

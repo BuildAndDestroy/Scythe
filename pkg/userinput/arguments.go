@@ -2,10 +2,13 @@ package userinput
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"os"
+	"os/signal"
 
 	"github.com/BuildAndDestroy/backdoorBoi/pkg/filetransfer"
+	"github.com/BuildAndDestroy/backdoorBoi/pkg/httpclient"
 	"github.com/BuildAndDestroy/backdoorBoi/pkg/netcat"
 	"github.com/BuildAndDestroy/backdoorBoi/pkg/proxies"
 )
@@ -57,11 +60,55 @@ func UserCommands() {
 	fs := flag.NewFlagSet(command, flag.ExitOnError)
 	switch command {
 	case Http:
-		log.Printf("We made it to %s", Http)
+		// log.Printf("We made it to %s", Http)
+		opts := httpclient.RequestOptions{}
+		opts.SetRequestFlag(fs)
+		// log.Println(os.Args[2:])
+		err := fs.Parse(os.Args[2:])
+		if err != nil {
+			log.Fatalf("[-] Error parsing flags: %s\n", err)
+		}
+		// output, err := httpclient.MakeRequest(&opts)
+		// if err != nil {
+		// 	log.Fatalf("[-] Error making the request: %s\n", err)
+		// }
+		// log.Println(output)
+		// Create result and error channels
+		resultChan := make(chan *httpclient.ResponseData)
+		errorChan := make(chan error)
+		stopChan := make(chan os.Signal, 1)
+
+		// Handle CTRL+C
+		signal.Notify(stopChan, os.Interrupt)
+
+		go httpclient.RunWithInterval(&opts, resultChan, errorChan, stopChan)
+		// Listen for responses without blocking the loop
+		for {
+			select {
+			case result := <-resultChan:
+				if result != nil {
+					log.Printf("[+] Response Body: %s\n", result.Body)
+				}
+			case err := <-errorChan:
+				if err != nil {
+					log.Printf("[-] Error: %s\n", err)
+				}
+			case <-stopChan:
+				// fmt.Println("\n[-] CTRL+C detected. Stopping the program...")
+				fmt.Println("\n[-] CTRL+C detected. Stopping the program...")
+				// close(resultChan)
+				// close(errorChan)
+				return
+			}
+		}
+
 	case Netcat:
-		var nni netcat.NetcatInput
+		nni := netcat.NetcatInput{}
 		nni.SetNetcatInput(fs)
-		fs.Parse(os.Args[2:])
+		err := fs.Parse(os.Args[2:])
+		if err != nil {
+			log.Fatalf("[-] Error parsing flags: %s", err)
+		}
 		netcat.NetcatArgLogic(&nni)
 	case Proxy:
 		pxyFlags := &proxies.Flags{}
