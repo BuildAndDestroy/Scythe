@@ -30,20 +30,7 @@ type RequestOptions struct {
 func (ro *RequestOptions) SetRequestFlag(fs *flag.FlagSet) {
 	fs.StringVar(&ro.Method, "method", "GET", "HTTP method (GET, POST, etc.)")
 	fs.StringVar(&ro.URL, "url", "", "Request URL")
-	// fs.String("headers", "", "Request headers (e.g., \"Content-Type:application/json,Authorization:Bearer xyz\")")
-	// fs.StringVar((*string)(&ro.Body), "body", "", "Request body (for POST, PUT, etc.)")
-	// fs.IntVar((*int)(&ro.Timeout), "timeout", 5, "Timeout in seconds")
 	fs.BoolVar(&ro.SkipTLSVerify, "skip-tls-verify", false, "Skip TLS certificate verification")
-
-	// fs.String("headers", "", "Request headers (e.g., \"Content-Type:application/json,Authorization:Bearer xyz\")") // Fuuuuu
-	// // Temporary string for headers
-	// headers := fs.String("headers", "", "Request headers (e.g., \"Content-Type:application/json,Authorization:Bearer xyz\")")
-
-	// // Temporary string for body
-	// body := fs.String("body", "", "Request body (for POST, PUT, etc.)")
-
-	// // Temporary integer for timeout
-	// timeout := fs.Int("timeout", 5, "Timeout in seconds")
 
 	// Process headers
 	fs.Func("headers", "HTTP headers as comma-separated key:value pairs", func(val string) error {
