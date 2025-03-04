@@ -82,7 +82,8 @@ func UserCommands() {
 			select {
 			case result := <-resultChan:
 				if result != nil {
-					log.Printf("[+] Response Body: %s\n", result.Body)
+					// log.Printf("[+] Response Body: %s\n", result.Body)
+					log.Println(result.Body)
 				}
 			case err := <-errorChan:
 				if err != nil {
