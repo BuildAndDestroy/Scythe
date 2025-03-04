@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,7 +20,8 @@ import (
 // RequestOptions defines available options for an HTTP request.
 type RequestOptions struct {
 	Method        string            // HTTP method (GET, POST, etc.)
-	URL           string            // Request URL
+	BaseURL       string            // Request URL
+	Directories   []string          // List of directories to append to the base URL
 	Headers       map[string]string // Request headers
 	Body          interface{}       // Request body (JSON struct or string)
 	Timeout       time.Duration     // Timeout duration
@@ -29,7 +31,7 @@ type RequestOptions struct {
 // Parse flags from user input
 func (ro *RequestOptions) SetRequestFlag(fs *flag.FlagSet) {
 	fs.StringVar(&ro.Method, "method", "GET", "HTTP method (GET, POST, etc.)")
-	fs.StringVar(&ro.URL, "url", "", "Request URL")
+	fs.StringVar(&ro.BaseURL, "url", "", "Request URL")
 	fs.BoolVar(&ro.SkipTLSVerify, "skip-tls-verify", false, "Skip TLS certificate verification")
 
 	// Process headers
@@ -57,6 +59,26 @@ func (ro *RequestOptions) SetRequestFlag(fs *flag.FlagSet) {
 		ro.Timeout = parsedTimeout
 		return nil
 	})
+
+	// New flag: Directories
+	fs.Func("directories", "Comma-separated list of directories (e.g., '/dir1,/dir2,/dir3')", func(val string) error {
+		if val == "" {
+			return nil
+		}
+		ro.Directories = strings.Split(val, ",")
+		for i := range ro.Directories {
+			ro.Directories[i] = strings.TrimSpace(ro.Directories[i])
+		}
+		return nil
+	})
+}
+
+// SelectRandomDirectory picks a random directory from the list.
+func (ro *RequestOptions) SelectRandomDirectory() string {
+	if len(ro.Directories) == 0 {
+		return ""
+	}
+	return ro.Directories[rand.Intn(len(ro.Directories))]
 }
 
 func parseHeaders(headerStr string) map[string]string {
@@ -104,13 +126,17 @@ func MakeRequest(opts *RequestOptions) (*ResponseData, error) {
 	// log.Println(opts.Body)
 	// log.Println(opts.Headers)
 	// log.Println(opts.SkipTLSVerify)
-	if opts.URL == "" {
-		return nil, errors.New("[-] URL is required")
+	if opts.BaseURL == "" {
+		return nil, errors.New("[-] Base URL is required")
 	}
 
 	if opts.Method == "GET" && opts.Body != nil {
 		return nil, errors.New("[-] GET request and body payload doesn't make sense")
 	}
+
+	// Append a random directory to the base URL
+	dir := opts.SelectRandomDirectory()
+	fullURL := opts.BaseURL + dir
 
 	// Convert request body to JSON if necessary
 	var reqBody io.Reader
@@ -127,7 +153,7 @@ func MakeRequest(opts *RequestOptions) (*ResponseData, error) {
 		}
 	}
 
-	req, err := http.NewRequest(opts.Method, opts.URL, reqBody)
+	req, err := http.NewRequest(opts.Method, fullURL, reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("[-] Error creating request: %w", err)
 	}
@@ -183,7 +209,6 @@ func RunWithInterval(opts *RequestOptions, resultChan chan *ResponseData, errorC
 	signal.Notify(stop, os.Interrupt)
 
 	interval := opts.Timeout
-
 	log.Printf("[+] Starting request loop. Sending requests every %v...\n", interval)
 
 	for {
@@ -200,7 +225,7 @@ func RunWithInterval(opts *RequestOptions, resultChan chan *ResponseData, errorC
 				// log.Printf("[-] Request failed: %s", err)
 				errorChan <- err
 			} else {
-				log.Printf("[+] Response (%d): %s", resp.Status, resp.Body)
+				// log.Printf("[+] Response (%d): %s", resp.Status, resp.Body)
 				resultChan <- resp
 			}
 
