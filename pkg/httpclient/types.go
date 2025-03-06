@@ -1,6 +1,6 @@
 package httpclient
 
-// ResponseData represents the response from an HTTP request.
+// ResponseData holds the server's response.
 type ResponseData struct {
 	Status     int                    // HTTP status code
 	Body       string                 // Raw response body
