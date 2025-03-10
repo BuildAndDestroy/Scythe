@@ -89,7 +89,7 @@ root
 * Proxy server
 
 ```
-
+./Scythe Proxy --port 9050 
 ```
 
 
