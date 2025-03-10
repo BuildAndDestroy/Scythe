@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BuildAndDestroy/backdoorBoi/pkg/encryption"
-	"github.com/BuildAndDestroy/backdoorBoi/pkg/environment"
-	"github.com/BuildAndDestroy/backdoorBoi/pkg/proxies"
+	"github.com/BuildAndDestroy/Scythe/pkg/encryption"
+	"github.com/BuildAndDestroy/Scythe/pkg/environment"
+	"github.com/BuildAndDestroy/Scythe/pkg/proxies"
 )
 
 type NetcatInput struct {
