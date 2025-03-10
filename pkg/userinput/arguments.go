@@ -7,10 +7,10 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/BuildAndDestroy/backdoorBoi/pkg/filetransfer"
-	"github.com/BuildAndDestroy/backdoorBoi/pkg/httpclient"
-	"github.com/BuildAndDestroy/backdoorBoi/pkg/netcat"
-	"github.com/BuildAndDestroy/backdoorBoi/pkg/proxies"
+	"github.com/BuildAndDestroy/Scythe/pkg/filetransfer"
+	"github.com/BuildAndDestroy/Scythe/pkg/httpclient"
+	"github.com/BuildAndDestroy/Scythe/pkg/netcat"
+	"github.com/BuildAndDestroy/Scythe/pkg/proxies"
 )
 
 // First layer flags that must be called

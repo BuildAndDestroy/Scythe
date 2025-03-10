@@ -21,8 +21,8 @@ jobs:
       with:
         go-version: '1.21'
 
-    - name: Build BackdoorBoi
-      run: cd cmd/ && env GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -v -o backdoorBoi
+    - name: Build Scythe
+      run: cd cmd/ && env GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -v -o Scythe
 
   test:
     name: Test user flags
@@ -40,7 +40,7 @@ jobs:
 
     - name: Test NetCat Help Menu
       run: echo "Add your go tests when ready"
-    #   run: cd cmd && ./backdoorBoi Netcat -h
+    #   run: cd cmd && ./Scythe Netcat -h
 
     # - name: Test File Transfer Help Menu
-    #   run: cd cmd && ./backdoorBoi FileTransfer -h
+    #   run: cd cmd && ./Scythe FileTransfer -h

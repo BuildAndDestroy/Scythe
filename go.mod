@@ -1,4 +1,4 @@
-module github.com/BuildAndDestroy/backdoorBoi
+module github.com/BuildAndDestroy/Scythe
 
 go 1.21
 
