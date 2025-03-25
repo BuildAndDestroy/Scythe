@@ -200,6 +200,7 @@ func MakeRequest(opts *RequestOptions) (*ResponseData, error) {
 		return nil, errors.New("[-] GET request and body payload doesn't make sense")
 	}
 
+	// log.Println(EnvVariableJsonPayload())
 	// Append a random directory to the base URL
 	dir := opts.SelectRandomDirectory()
 	fullURL := opts.BaseURL + dir
@@ -262,8 +263,6 @@ func MakeRequest(opts *RequestOptions) (*ResponseData, error) {
 			Status:     resp.StatusCode,
 			Body:       string(respBody),
 			JSONParsed: jsonResponse,
-			// 	}, nil
-			// }
 		}
 
 		if commands, found := jsonResponse["Commands"].([]interface{}); found {
@@ -292,6 +291,7 @@ func MakeRequest(opts *RequestOptions) (*ResponseData, error) {
 			}
 		}
 
+		log.Println(responseData)
 		return responseData, nil
 	}
 
