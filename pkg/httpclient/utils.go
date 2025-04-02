@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 
 	"github.com/BuildAndDestroy/Scythe/pkg/httpclient/httpclientenv"
@@ -69,4 +70,16 @@ func EnvVariableJsonPayload() string {
 	}
 	// log.Println(ToJSON(data))
 	return ToJSON(data)
+}
+
+// Extract the UUID if in directory request
+func extractUUID(dir string) (string, bool) {
+	uuidRegex := `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`
+	re := regexp.MustCompile(uuidRegex)
+
+	parts := strings.Split(strings.TrimPrefix(dir, "/"), "/") // Remove leading slash and split
+	if len(parts) > 1 && re.MatchString(parts[1]) {
+		return parts[1], true // Return UUID if valid
+	}
+	return "", false
 }
