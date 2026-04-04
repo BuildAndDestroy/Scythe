@@ -1,7 +1,7 @@
 FROM debian:latest
 RUN apt update -y
 RUN apt upgrade -y
-RUN apt install golang-go -y
+RUN apt install -y ca-certificates golang-go
 COPY . /root/
 WORKDIR /root/cmd/
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -v -o ScytheLinux
