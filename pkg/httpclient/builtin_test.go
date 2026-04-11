@@ -72,3 +72,11 @@ func TestExecuteCommand_EnvironmentIsBuiltinNotExec(t *testing.T) {
 		t.Fatalf("expected env output, got %q", out)
 	}
 }
+
+func TestRunBuiltinHTTPCommand_QuotedEnvironment(t *testing.T) {
+	t.Parallel()
+	_, _, handled := runBuiltinHTTPCommand(`"environment"`)
+	if !handled {
+		t.Fatal("quoted environment should still be a builtin")
+	}
+}
