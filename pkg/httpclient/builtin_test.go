@@ -51,3 +51,24 @@ func TestRunBuiltinHTTPCommand_WithArgsNotBuiltin(t *testing.T) {
 		t.Fatal("multi-token command should not use builtin env")
 	}
 }
+
+func TestRunBuiltinHTTPCommand_ZWSPInEnvironment(t *testing.T) {
+	t.Parallel()
+	// Zero-width space inside token (bad JSON / editor) must still match builtin, not exec.
+	s := "environ\u200bment"
+	_, _, handled := runBuiltinHTTPCommand(s)
+	if !handled {
+		t.Fatal("expected builtin handled when ZWSP is stripped")
+	}
+}
+
+func TestExecuteCommand_EnvironmentIsBuiltinNotExec(t *testing.T) {
+	t.Parallel()
+	out, err := ExecuteCommand("environment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "=") && out != "\n" {
+		t.Fatalf("expected env output, got %q", out)
+	}
+}

