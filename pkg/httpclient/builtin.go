@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/user"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -76,10 +77,41 @@ func stripInvisibleRunes(s string) string {
 	return b.String()
 }
 
+// stripSurroundingQuotes removes one or more layers of ASCII or common Unicode quotes around the
+// whole token (e.g. C2/UI stores `"environment"` with literal quote characters).
+func stripSurroundingQuotes(s string) string {
+	s = strings.TrimSpace(s)
+	for len(s) >= 2 {
+		switch {
+		case strings.HasPrefix(s, `"`) && strings.HasSuffix(s, `"`):
+			if u, err := strconv.Unquote(s); err == nil {
+				s = strings.TrimSpace(u)
+				continue
+			}
+			s = strings.TrimSpace(s[1 : len(s)-1])
+			continue
+		case strings.HasPrefix(s, `'`) && strings.HasSuffix(s, `'`):
+			s = strings.TrimSpace(s[1 : len(s)-1])
+			continue
+		case strings.HasPrefix(s, "\u201c") && strings.HasSuffix(s, "\u201d"):
+			s = strings.TrimSpace(s[len("\u201c") : len(s)-len("\u201d")])
+			continue
+		case strings.HasPrefix(s, "\u2018") && strings.HasSuffix(s, "\u2019"):
+			s = strings.TrimSpace(s[len("\u2018") : len(s)-len("\u2019")])
+			continue
+		default:
+			return s
+		}
+	}
+	return s
+}
+
 func normalizeBuiltinCommand(s string) string {
 	s = strings.TrimSpace(s)
 	s = strings.TrimPrefix(s, "\ufeff")
 	s = stripInvisibleRunes(s)
+	s = strings.TrimSpace(s)
+	s = stripSurroundingQuotes(s)
 	return strings.TrimSpace(s)
 }
 

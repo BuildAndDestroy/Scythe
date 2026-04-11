@@ -251,3 +251,9 @@ python3 -m http.server
 ```
 ./Scythe Http --method GET --timeout 5s --url http://127.0.0.1:5000 --directories /index.js,/index.html,/first-dir/index.js,/first-dir/index.html,/command.js,/server.py,/first-dir/dir.js/server.py,/requirements.py
 ```
+
+### HTTP beacon built-ins (no shell, no `exec` of the Unix tool names)
+
+When the C2 JSON response includes a `Commands` array (e.g. from [ReaperC2](https://github.com/BuildAndDestroy/ReaperC2)), each string is handled inside the Scythe process: **`whoami`**, **`groups`**, **`env`**, and **`environment`** use Go’s **`os/user`** and **`os.Environ()`** only (same *idea* as in-process BOF-style work: no reliance on `/usr/bin/env`, `cmd.exe`, or a shell). They are matched case-insensitively after trimming; surrounding `"` / `'` / smart quotes are stripped if the whole token is wrapped that way.
+
+**ReaperC2:** the admin **Download Scythe.embedded** build uses the **`third_party/Scythe` git submodule**. If you still see `exec: "environment": executable file not found`, the submodule is almost certainly pinned to an **old Scythe** without these built-ins. From the ReaperC2 repo root run `git submodule update --init --recursive`, pull this submodule to the commit that contains the built-in commands, then regenerate the embedded binary (or build Scythe from this repo directly).
