@@ -112,6 +112,7 @@ func normalizeBuiltinCommand(s string) string {
 	s = stripInvisibleRunes(s)
 	s = strings.TrimSpace(s)
 	s = stripSurroundingQuotes(s)
+	s = strings.ReplaceAll(s, "\x00", "")
 	return strings.TrimSpace(s)
 }
 
@@ -121,7 +122,21 @@ func runBuiltinHTTPCommand(command string) (output string, err error, handled bo
 	if s == "" {
 		return "", nil, false
 	}
-	// Single-token only: do not treat "env -0" as builtin.
+	// download <path>  — path is everything after the first run of spaces after the verb.
+	if verb, path, ok := splitVerbAndPath(s); ok {
+		switch verb {
+		case "download":
+			if path == "" {
+				return "", fmt.Errorf("download: missing path"), true
+			}
+			out, e := builtinHTTPDownload(path)
+			return out, e, true
+		case "upload":
+			return "", fmt.Errorf("upload: use JSON command with path and content_base64 (see README)"), true
+		default:
+			// fall through to single-token / exec
+		}
+	}
 	fields := strings.Fields(s)
 	if len(fields) != 1 {
 		return "", nil, false

