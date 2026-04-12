@@ -68,6 +68,18 @@ func UserCommands() {
 		if err != nil {
 			log.Fatalf("[-] Error parsing flags: %s\n", err)
 		}
+		if opts.SOCKS5Listen {
+			if opts.SOCKS5Port < 1 || opts.SOCKS5Port > 65535 {
+				log.Fatalf("[-] Invalid -socks5-port: %d (use 1–65535)\n", opts.SOCKS5Port)
+			}
+			addr := fmt.Sprintf(":%d", opts.SOCKS5Port)
+			go func() {
+				srv := proxies.NewServer(addr)
+				if err := srv.Start(); err != nil {
+					log.Printf("[-] SOCKS5 listener: %v\n", err)
+				}
+			}()
+		}
 		// Create result and error channels
 		resultChan := make(chan *httpclient.ResponseData)
 		errorChan := make(chan error)
