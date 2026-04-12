@@ -41,6 +41,47 @@ func TestHandleHTTPFileCommandMap_DownloadShorthand(t *testing.T) {
 	}
 }
 
+func TestSummarizeHTTPFileCommandForReceive_StripsBase64(t *testing.T) {
+	t.Parallel()
+	m := map[string]interface{}{
+		"op":               "upload",
+		"path":             "/tmp/x",
+		"content_base64":   strings.Repeat("YQ", 5000),
+		"contentBase64":    "skip-me",
+	}
+	s := summarizeHTTPFileCommandForReceive(m)
+	if strings.Contains(s, "content_base64") || strings.Contains(s, "contentBase64") || strings.Contains(s, "YQ") {
+		t.Fatalf("summary should omit payload keys: %s", s[:min(200, len(s))])
+	}
+	if !strings.Contains(s, "/tmp/x") {
+		t.Fatal(s)
+	}
+}
+
+func TestExecuteStructuredBeaconCommand_SummaryOmitsBase64(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "out.dat")
+	large := strings.Repeat("YQ", 100) // valid base64 pairs
+	sum, out, err := executeStructuredBeaconCommand(map[string]interface{}{
+		"path":           dest,
+		"content_base64": large,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(sum, "content_base64") || strings.Contains(sum, large[:40]) {
+		t.Fatalf("bad summary: %s", sum)
+	}
+	b, _ := os.ReadFile(dest)
+	if len(b) == 0 {
+		t.Fatal("upload did not run")
+	}
+	if !strings.Contains(out, "SCYTHE_FILE_UPLOAD") {
+		t.Fatal(out)
+	}
+}
+
 func TestHandleHTTPFileCommandMap_Upload(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

