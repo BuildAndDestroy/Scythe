@@ -37,6 +37,8 @@ type RequestOptions struct {
 	Timeout       time.Duration     // Timeout duration
 	SkipTLSVerify bool              // Whether to skip TLS verification
 	Proxy         string            // Optional SOCKS5 proxy host:port (e.g. 127.0.0.1:9050)
+	SOCKS5Listen  bool              // When true, also listen as a SOCKS5 server (see SOCKS5Port)
+	SOCKS5Port    int               // Local SOCKS5 listen port when SOCKS5Listen is true (default 8181)
 }
 
 // Parse flags from user input
@@ -44,6 +46,8 @@ func (ro *RequestOptions) SetRequestFlag(fs *flag.FlagSet) {
 	fs.StringVar(&ro.Method, "method", "GET", "HTTP method (GET, POST, etc.)")
 	fs.StringVar(&ro.BaseURL, "url", "", "Request URL")
 	fs.StringVar(&ro.Proxy, "proxy", "", "Optional SOCKS5 proxy host:port; traffic to -url is routed through it (e.g. 127.0.0.1:9050)")
+	fs.BoolVar(&ro.SOCKS5Listen, "socks5-listen", false, "Also run a local SOCKS5 server alongside the HTTP beacon (see -socks5-port)")
+	fs.IntVar(&ro.SOCKS5Port, "socks5-port", 8181, "Port for the embedded SOCKS5 listener when -socks5-listen is set (same default as Proxy subcommand)")
 	fs.BoolVar(&ro.SkipTLSVerify, "skip-tls-verify", false, "Skip TLS certificate verification")
 
 	// Process headers
