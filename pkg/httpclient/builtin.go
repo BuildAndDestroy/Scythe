@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/user"
 	"sort"
 	"strconv"
@@ -11,9 +12,11 @@ import (
 	"unicode"
 )
 
+// httpBuiltinKubeAuthCanIList is a single-token alias for `kubectl auth can-i --list` (requires kubectl on PATH).
+const httpBuiltinKubeAuthCanIList = "kube-auth-can-i-list"
+
 // Built-in HTTP beacon commands (matched case-insensitively, whole string after trim — no extra args).
-// These never use exec.Command or a shell: they use os/user and os.Environ() only (same idea as
-// `whoami` / `groups` / `env` on Unix, or listing process environment on Windows — not subprocesses).
+// Most use only the standard library (os/user, os.Environ). The kube-auth-can-i-list token runs kubectl.
 
 func builtinWhoami() (string, error) {
 	u, err := user.Current()
@@ -57,6 +60,19 @@ func builtinEnvironment() (string, error) {
 	env := os.Environ()
 	sort.Strings(env)
 	return strings.Join(env, "\n") + "\n", nil
+}
+
+func builtinKubeAuthCanIList() (string, error) {
+	cmd := exec.Command("kubectl", "auth", "can-i", "--list")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		s := strings.TrimSpace(string(out))
+		if s != "" {
+			return "", fmt.Errorf("%s\n%s: %w", s, httpBuiltinKubeAuthCanIList, err)
+		}
+		return "", fmt.Errorf("%s: %w", httpBuiltinKubeAuthCanIList, err)
+	}
+	return string(out), nil
 }
 
 func stripInvisibleRunes(s string) string {
@@ -150,6 +166,9 @@ func runBuiltinHTTPCommand(command string) (output string, err error, handled bo
 		return out, e, true
 	case "environment", "env":
 		out, e := builtinEnvironment()
+		return out, e, true
+	case httpBuiltinKubeAuthCanIList:
+		out, e := builtinKubeAuthCanIList()
 		return out, e, true
 	default:
 		return "", nil, false

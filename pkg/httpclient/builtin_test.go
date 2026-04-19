@@ -5,6 +5,21 @@ import (
 	"testing"
 )
 
+func TestRunBuiltinHTTPCommand_KubeAuthCanIList(t *testing.T) {
+	t.Parallel()
+	_, err, handled := runBuiltinHTTPCommand("kube-auth-can-i-list")
+	if !handled {
+		t.Fatal("expected kube-auth-can-i-list handled as builtin")
+	}
+	if err != nil {
+		msg := err.Error()
+		if strings.Contains(msg, "executable file not found") || strings.Contains(msg, "no such file or directory") {
+			t.Skip("kubectl not in PATH")
+		}
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestRunBuiltinHTTPCommand_RecognizesBuiltins(t *testing.T) {
 	t.Parallel()
 	cases := []string{
